@@ -421,6 +421,8 @@ A8(FAST, D2Game,00000,00000,00000,EF580,F0F70,F0D70,F2540,F1800,1DEB60,	void,		D
 A8(FAST, D2Game,00000,00000,00000,FF1B0,F0DB0,F0BB0,F2380,F1430,1DEAD0,	void,		D2MonsterUseSkill, (Game* ptGame, Unit* ptMonster, DWORD arg, DWORD skill, Unit* target, DWORD x, DWORD y) );
 A8(FAST, D2Game,00000,00000,00000,B9340,25450,44140,53F10,39810,132240,	void,		D2SaveSPChar, (Game* ptGame, Unit* ptChar, char* name, DWORD interaction, DWORD leaving) );//1.14d: name by EBX; leaving set only on the save made when the player leaves the game
 A8(FAST, D2Game,00000,00000,00000,00000,00000,00000,00000,00000,12D440,	void,		D2GameAutosaveTick, () );//1.14d only. Takes the Game* in EBX and no stack argument, so it is only ever JMPed to from a stub that keeps EBX, never called from C++
+A8(FAST, D2Game,00000,00000,00000,00000,00000,00000,00000,00000,28239A,	void*,		D2GameOpenFile, () );//1.14d only. The game's own CRT fopen(path, mode), cdecl: called through a cdecl cast, never through this type. Its FILE* belongs to the game's CRT, for the game's fread and fclose only
+A8(FAST, D2Game,00000,00000,00000,00000,00000,00000,00000,00000,284782,	DWORD,		D2GameReadFile, () );//1.14d only. The game's own CRT fread(buffer, size, count, file), cdecl: called through a cdecl cast, never through this type
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

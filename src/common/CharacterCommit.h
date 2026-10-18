@@ -193,8 +193,7 @@ enum CommitAction
 };
 #define COMMIT_MAX_ACTIONS 4
 
-// committed: the commit test held (a load then refuses once). rewritesD2s: the plan writes the .d2s (a load that
-// ran it refuses once: the .d2s the game already read is stale). journal is valid when parse is OK.
+// committed: the commit test held. rewritesD2s: the plan writes the .d2s. journal is valid when parse is OK.
 struct CommitRecovery
 {
 	CommitVerdict verdict;
@@ -207,7 +206,7 @@ struct CommitRecovery
 	CommitAction actions[COMMIT_MAX_ACTIONS];
 };
 
-// The verdict table, at load (before the custom data loads), at a save's step 0, after a failed commit step and at
+// The verdict table, at load (before the game reads the .d2s), at a save's step 0, after a failed commit step and at
 // each retry. loadedHere: the current game loaded or saved the character; false at load-time recovery and at the
 // first save of a character that never loaded. journalState ABSENT/UNREADABLE ignores journal/journalSize. When there is no
 // journal the .d2s is never consulted, and an unreadable .d2x counts as unfenced.
@@ -216,10 +215,6 @@ void CommitDecideRecovery(CommitFileState journalState, const BYTE* journal, DWO
 // Whether the save or load may go on, once every action of the plan succeeded.
 bool CommitVerdictProceeds(CommitVerdict verdict);
 const char* CommitVerdictName(CommitVerdict verdict);
-// After a load's recovery succeeded: whether the .d2s the game already read may be stale, so the load refuses once.
-// True when recovery rewrote the .d2s, applied a committed journal (ROLL_FORWARD), or the lock had to be waited for.
-// An orphan's committed journal belongs to an earlier incarnation and leaves this character's files as they were.
-bool CommitLoadRefusesOnce(CommitVerdict verdict, bool committed, bool rewroteD2s, bool lockWaited);
 
 // ".orphan-20261013-142530" (local time), appended to the archived journal and .d2x. False when out is too small.
 bool CommitOrphanSuffix(const SYSTEMTIME* t, char* out, size_t outSize);

@@ -772,9 +772,8 @@ can still leave them out of step with the character; the .d2s is still written w
 On for new installs and for upgrades: a PlugY.ini without this line uses 1. With 0, saves are written the old way,
 but PlugY still finishes a save that a crash interrupted and still refuses a character that another game runs.
 A kill early in a save is undone without a word: the character loads its previous save as usual. After a kill late
-in a save (once the save was committed), or when the load had to wait for another game to release the character,
-the next load finishes the save and stops once at "Unable to enter game", without a message box, so the game never
-starts from an outdated copy. Load the character again; D2Bot retries by itself.
+in a save (once the save was committed), the next load finishes the save before the game reads the character, so
+the character enters the game with that save.
 When the .d2s is read-only or can't be read (another program holds it), a save that doesn't change the shared stash
 writes neither the .d2s nor the .d2x (with 0, the .d2x is still saved). During a game, a .d2x that can't be read
 skips such a save too.

@@ -807,10 +807,9 @@ Aktiv bei Neuinstallationen und bei Updates: Eine PlugY.ini ohne diese Zeile ver
 Weise gespeichert, aber PlugY schließt einen durch einen Absturz unterbrochenen Speichervorgang trotzdem ab und
 weist einen Charakter, den ein anderes Spiel gerade ausführt, weiterhin ab.
 Ein Abbruch früh im Speichervorgang wird stillschweigend rückgängig gemacht: Der Charakter lädt wie gewohnt seinen
-vorherigen Spielstand. Nach einem Abbruch spät im Speichervorgang (nachdem er festgeschrieben wurde) oder wenn das
-Laden warten musste, bis ein anderes Spiel den Charakter freigibt, schließt das nächste Laden den Speichervorgang ab
-und endet einmal mit "Unable to enter game", ohne Meldungsfenster, damit das Spiel nie mit einem veralteten Stand
-beginnt. Lade den Charakter erneut; D2Bot versucht es von selbst noch einmal.
+vorherigen Spielstand. Nach einem Abbruch spät im Speichervorgang (nachdem er festgeschrieben wurde) schließt das
+nächste Laden den Speichervorgang ab, bevor das Spiel den Charakter liest, sodass der Charakter mit diesem
+Spielstand ins Spiel kommt.
 Ist die .d2s schreibgeschützt oder nicht lesbar (ein anderes Programm hält sie offen), schreibt ein Speichervorgang,
 der den gemeinsamen Goldschatz nicht ändert, weder die .d2s noch die .d2x (mit 0 wird die .d2x trotzdem
 gespeichert). Während des Spiels überspringt PlugY einen solchen Speichervorgang auch bei einer nicht lesbaren .d2x.

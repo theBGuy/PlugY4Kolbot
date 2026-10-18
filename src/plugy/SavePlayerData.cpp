@@ -548,7 +548,6 @@ static bool runRecovery(const char* name, bool loadedHere, int readRetries, bool
 	out->verdict = plan->verdict;
 	out->cause = plan->cause;
 	out->parse = plan->parse;
-	out->committed = plan->committed;
 	out->d2xFenced = d2xFile.state == COMMIT_FILE_PRESENT && d2xFile.fenced;
 	if (plan->verdict != COMMIT_VERDICT_NONE)
 		log_msg("Crash-safe save: journal of %s: %s (%s, seq %u, %d action(s))\n", name, CommitVerdictName(plan->verdict),
@@ -565,11 +564,7 @@ static bool runRecovery(const char* name, bool loadedHere, int readRetries, bool
 	{
 		ok = runRecoveryAction(plan->actions[i], &paths, &plan->journal, suffix, retryWrites, out->file);
 		if (ok)
-		{
 			(*actionsDone)++;
-			if (plan->actions[i] == COMMIT_ACTION_WRITE_D2S_POST)
-				out->rewroteD2s = true;
-		}
 	}
 	free(journal);
 	out->actionFailed = !ok;
@@ -582,7 +577,12 @@ bool recoverCharacterFiles(const char* name, bool loadedHere, CharacterRecovery*
 {
 	CommitRecovery plan;
 	int actionsDone;
-	return runRecovery(name, loadedHere, SAVE_READ_RETRIES, true, out, &plan, &actionsDone);
+	if (!runRecovery(name, loadedHere, SAVE_READ_RETRIES, true, out, &plan, &actionsDone))
+		return false;
+	// This character's journal is resolved: a retry of it has nothing left to do.
+	if (retryPending && !_stricmp(retryName, name))
+		retryPending = false;
+	return true;
 }
 
 void showRecoveryRefusal(const char* name, const CharacterRecovery* recovery, bool atLoad)
@@ -729,6 +729,12 @@ void releaseSessionLockUnlessNamed(const char* name)
 		releaseSessionLock();
 }
 
+void releaseSessionLockNamed(const char* name)
+{
+	if (holdsSessionLock(name))
+		releaseSessionLock();
+}
+
 void setSessionLockOwner(PlayerData* playerData)
 {
 	sessionLockOwner = playerData;
@@ -858,8 +864,6 @@ static bool commitStepZero(const char* name, bool isLeaving, PlayerData* owner, 
 			showRecoveryRefusal(name, &recovery, false);
 		return false;
 	}
-	if (retryPending && !_stricmp(retryName, name))
-		retryPending = false;
 	killPoint("KP_START");
 	return true;
 }
@@ -2166,7 +2170,7 @@ void Install_SavePlayerData()
 	isInstalled = true;
 }
 
-// Owns every crash-safe save patch. The load site and the tick are installed whatever ActiveCrashSafeSaves says, so a
+// Owns every crash-safe save patch. The load sites and the tick are installed whatever ActiveCrashSafeSaves says, so a
 // save a crash interrupted is always finished and a character always runs in one game at a time.
 void Install_CharacterCommit()
 {
@@ -2204,8 +2208,18 @@ void Install_CharacterCommit()
 	MEMC_REF4( D2GameAutosaveTick, caller_CharacterCommitTick_114);
 	//0052D8F9  |. E8 42FBFFFF    CALL Game.0052D440
 
-	// Load SP player: the session lock and recovery, then the custom data when it is on (Install_LoadPlayerData leaves
-	// this site to this installer on 1.14d).
+	// Load SP player, at the open of the .d2s: the session lock and recovery come before the game reads the character.
+	mem_seek R8(D2Game, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 134411);
+	MEMC_REF4( D2GameOpenFile, caller_OpenSPCharacter_114);
+	//00534410  |. E8 85DF1400    CALL Game.0068239A
+
+	// Load SP player, the read of the .d2s: a read of nothing fails the load before the built-player site below.
+	mem_seek R8(D2Game, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 13442E);
+	MEMC_REF4( D2GameReadFile, ReadSPCharacter_114);
+	//0053442D  |. E8 50031500    CALL Game.00684782
+
+	// Load SP player, once the player is built: its lock owner, then the custom data when it is on (Install_LoadPlayerData
+	// leaves this site to this installer on 1.14d).
 	mem_seek R8(D2Game, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 13447A);
 	memt_byte( 0x8B, 0xE8); // CALL
 	MEMT_REF4( 0x75FF85F8, caller_LoadSPCharacter_114);

@@ -133,15 +133,26 @@ static void deleteJournalTempFiles(const char* name)
 
 // The character whose last load met a journal or file it could not read ("" otherwise).
 static char readErrorName[COMMIT_NAME_SIZE] = "";
+// The character whose .d2s the game opened after its lock and recovery ("" otherwise): set by OpenSPCharacter_114,
+// cleared once that load is built or fails.
+static char openedName[COMMIT_NAME_SIZE] = "";
 
-// Every single-player load on 1.14d, whatever ActiveCrashSafeSaves says, after vanilla read the .d2s and built the
-// player and before anything of the character is used: a save that a crash interrupted is finished or undone first.
-static DWORD prepareSPCharacterLoad(Unit* ptChar)
+static void copyLoadName(char* out, const char* name)
 {
-	char* name = PCPlayerData->name;
+	strncpy(out, name, COMMIT_NAME_SIZE - 1);
+	out[COMMIT_NAME_SIZE - 1] = NULL;
+}
+
+// Every single-player load on 1.14d, whatever ActiveCrashSafeSaves says, before the game reads any file of the
+// character: the character is locked, and a save that a crash interrupted is finished or undone first. settled: the
+// lock had to be waited for, or recovery found a journal.
+static bool prepareSPCharacterFiles(const char* name, bool* settled)
+{
+	*settled = false;
 	// D2Bot reuses Game.exe. With the multi-page stash, the character played before already released its lock when its
 	// server PlayerData was freed, after its last save; without it, that lock lasts until this process loads another
-	// character (here) or exits. It is never released by a leaving save, which may still be running.
+	// character (here), a load of it fails, or the process exits. It is never released by a leaving save, which may
+	// still be running.
 	releaseSessionLockUnlessNamed(name);
 	bool waited = false;
 	DWORD error = 0;
@@ -151,9 +162,8 @@ static DWORD prepareSPCharacterLoad(Unit* ptChar)
 		if (!getSaveFilePath(lockPath, MAX_PATH, name, ".pylive"))
 			strcpy(lockPath, "(path too long)");
 		log_box("PlugY can't load %s: this character is already running in another game (or its lock file %s can't be opened, error %u).\nClose the other game, then load the character again.", name, lockPath, error);
-		return 0xE;
+		return false;
 	}
-	setSessionLockOwner(PCPlayerData);
 
 	CharacterRecovery recovery;
 	if (!recoverCharacterFiles(name, false, &recovery))
@@ -167,51 +177,156 @@ static DWORD prepareSPCharacterLoad(Unit* ptChar)
 		else
 			log_msg("Load of %s refused once: %s can't be read now (error %u)\n", name, recovery.file, recovery.readError);
 		if (readError)
-		{
-			strncpy(readErrorName, name, sizeof(readErrorName) - 1);
-			readErrorName[sizeof(readErrorName) - 1] = NULL;
-		}
+			copyLoadName(readErrorName, name);
 		else
 			readErrorName[0] = NULL;
-		return 0xE;
+		releaseSessionLockNamed(name);
+		return false;
 	}
 	readErrorName[0] = NULL;
 	deleteJournalTempFiles(name);
-	// The .d2s vanilla read before this hook may predate the save just finished on disk, or the one another game
-	// finished while this load waited for the lock: the game must not start from it. The next load reads the new files.
-	if (CommitLoadRefusesOnce(recovery.verdict, recovery.committed, recovery.rewroteD2s, waited))
-	{
-		log_msg("Load of %s refused once (%s): loading it again uses the finished save\n", name,
-			recovery.rewroteD2s ? "its interrupted save was finished" : waited ? "another game released it meanwhile" : "its interrupted save was committed");
-		return 0xE;
-	}
-	markCharacterLoaded(name, PCGame);
-	return 0;
+	*settled = waited || recovery.verdict != COMMIT_VERDICT_NONE;
+	return true;
 }
 
+#ifdef PLUGY_TEST_HOOKS
+// PLUGY_LOAD_HOLD=<file>: a load waits at the open of the .d2s while that file exists, so a test can act meanwhile.
+static void holdLoadForTest()
+{
+	char path[MAX_PATH];
+	DWORD len = GetEnvironmentVariableA("PLUGY_LOAD_HOLD", path, sizeof(path));
+	if (!len || len >= sizeof(path) || GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES)
+		return;
+	log_msg("Test hook: load held\n");
+	while (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
+		Sleep(20);
+	log_msg("Test hook: load released\n");
+}
+#endif
+
+typedef void* (__cdecl *TGameOpenFileCdecl)(const char* path, const char* mode);
+typedef size_t (__cdecl *TGameReadFileCdecl)(void* buffer, size_t size, size_t count, void* file);
+
+// The open of the .d2s of a single-player load, name being the character the server loads. The game's own fopen opens
+// it, since the game's fread and fclose take the FILE*. NULL fails the load with 0xE before any player is built.
+void* STDCALL OpenSPCharacter_114(const char* name, const char* path, const char* mode)
+{
+	openedName[0] = NULL;
+#ifdef PLUGY_TEST_HOOKS
+	holdLoadForTest();
+#endif
+	// No .d2s means no character to load: the game fails as it always did, and recovery doesn't archive the journal of
+	// a character whose file is only out of place.
+	if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES)
+	{
+		DWORD error = GetLastError();
+		if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+		{
+			log_msg("Load of %s: %s is missing\n", name, path);
+			return ((TGameOpenFileCdecl)D2GameOpenFile)(path, mode);
+		}
+	}
+	bool settled;
+	if (!prepareSPCharacterFiles(name, &settled))
+		return NULL;
+	SetLastError(0);
+	void* file = ((TGameOpenFileCdecl)D2GameOpenFile)(path, mode);
+	if (!file)
+	{
+		log_msg("Load of %s: the game can't open %s (last error %u)\n", name, path, GetLastError());
+		releaseSessionLockNamed(name);
+		return NULL;
+	}
+	copyLoadName(openedName, name);
+	return file;
+}
+
+// A load that fails once its .d2s was open plays nothing: the character's lock goes.
+void STDCALL abandonSPCharacterLoad()
+{
+	if (openedName[0])
+		releaseSessionLockNamed(openedName);
+	openedName[0] = NULL;
+}
+
+// The read of the .d2s the open let through, by the game's own fread. A read that returns nothing (an empty file, or
+// another program locking its bytes) takes the game's no-file exit past 0x53447A, so the load is abandoned here.
+size_t __cdecl ReadSPCharacter_114(void* buffer, size_t size, size_t count, void* file)
+{
+	size_t done = ((TGameReadFileCdecl)D2GameReadFile)(buffer, size, count, file);
+	if (!done && openedName[0])
+	{
+		log_msg("Load of %s: its .d2s read nothing\n", openedName);
+		abandonSPCharacterLoad();
+	}
+	return done;
+}
+
+// Once the game built the player from the .d2s that OpenSPCharacter_114 let it read.
 DWORD STDCALL LoadSPCharacter_114(Unit* ptChar)
 {
 	if (ptChar && ptChar->nUnitType == UNIT_PLAYER && PCPlayerData)
 	{
-		DWORD ret = prepareSPCharacterLoad(ptChar);
-		if (ret)
-			return ret;
+		char* name = PCPlayerData->name;
+		// The game names the player and its .d2s path from the same client record and refuses a file whose header holds
+		// another name, so only an open that bypassed OpenSPCharacter_114 lands here. Its lock and recovery come after
+		// the game's read: when they had to wait or found a journal, the player may stand on an outdated .d2s.
+		if (_stricmp(openedName, name))
+		{
+			log_msg("Load of %s: its .d2s was opened without the session lock\n", name);
+			bool settled;
+			if (!prepareSPCharacterFiles(name, &settled))
+			{
+				openedName[0] = NULL;
+				return 0xE;
+			}
+			copyLoadName(openedName, name);
+			if (settled)
+			{
+				log_msg("Load of %s refused once: its files were settled after the game read them\n", name);
+				abandonSPCharacterLoad();
+				return 0xE;
+			}
+		}
+		setSessionLockOwner(PCPlayerData);
+		markCharacterLoaded(name, PCGame);
 	}
-	return active_PlayerCustomData ? LoadSPCustomData(ptChar) : 0;
+	else
+		abandonSPCharacterLoad();
+	DWORD ret = active_PlayerCustomData ? LoadSPCustomData(ptChar) : 0;
+	if (ret)
+		abandonSPCharacterLoad();
+	openedName[0] = NULL;
+	return ret;
 }
 
-// Replaces MOV EDI,EAX / TEST EDI,EDI / JNZ 0x534493 after the player is built (EAX 0) from the .d2s: a nonzero result
-// takes vanilla's failure exit 0x534493 with the code in EDI. Installed by Install_CharacterCommit.
+// Replaces the call of the game's fopen(path, "rb") at 0x534410 that opens the .d2s, ESI holding the name the server
+// loads. NULL takes vanilla's no-file exit: the load fails with 0xE and no player is built. Installed by
+// Install_CharacterCommit.
+FCT_ASM (caller_OpenSPCharacter_114 )
+	PUSH DWORD PTR SS:[ESP+8]
+	PUSH DWORD PTR SS:[ESP+8]
+	PUSH ESI
+	CALL OpenSPCharacter_114
+	RETN
+}}
+
+// Replaces MOV EDI,EAX / TEST EDI,EDI / JNZ 0x534493 after the parser (EAX 0: the player is built from the .d2s): a
+// nonzero result takes vanilla's failure exit 0x534493, which returns EAX, with the code in EDI and EAX. Installed by
+// Install_CharacterCommit.
 FCT_ASM (caller_LoadSPCharacter_114 )
 	MOV EDI,EAX
 	TEST EDI,EDI
-	JNZ JMP_LoadSPCharacter
+	JNZ failed_LoadSPCharacter
 	PUSH DWORD PTR SS:[ESP+0x1C]
 	CALL LoadSPCharacter_114
 	MOV EDI,EAX
 	TEST EDI,EDI
 	JNZ JMP_LoadSPCharacter
 	RETN
+failed_LoadSPCharacter:
+	CALL abandonSPCharacterLoad
+	MOV EAX,EDI
 JMP_LoadSPCharacter:
 	ADD DWORD PTR SS:[ESP],0x14
 	RETN
