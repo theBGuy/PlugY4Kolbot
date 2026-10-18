@@ -862,9 +862,11 @@ PlugY legt pro Charakter zwei Dateien neben den Spielständen an:
 - <Name>.pylive, die Sperre des laufenden Charakters: Solange ein Spiel einen Charakter ausführt, kann ihn kein
   anderes Spiel laden oder speichern. Mit dem Mehrfachseiten-Goldschatz (ActiveMultiPageStash=1) endet die Sperre
   mit dem Spiel; ohne ihn behält ein Game.exe, das ins Menü zurückgekehrt ist, die Sperre seines letzten
-  Charakters, bis es einen anderen Charakter lädt oder beendet wird. Die Datei bleibt danach liegen und schadet
-  nicht; auch eine schreibgeschützte .pylive wirkt als Sperre. Lässt sich die Sperrdatei nicht anlegen (zum
-  Beispiel in einem Spielstand-Ordner, der keine neuen Dateien zulässt), läuft der Charakter ohne die Sperre.
+  Charakters, bis es einen anderen Charakter lädt oder beendet wird; scheitert ein Laden desselben Charakters,
+  weil PlugY es ablehnt oder seine Dateien nicht lesbar sind, wird die Sperre ebenfalls freigegeben. Die Datei
+  bleibt danach liegen und schadet nicht; auch eine schreibgeschützte .pylive wirkt als Sperre. Lässt sich die
+  Sperrdatei nicht anlegen (zum Beispiel in einem Spielstand-Ordner, der keine neuen Dateien zulässt), läuft der
+  Charakter ohne die Sperre.
 - ActiveCrashSafeSaves=1	{0:Speichern auf die alte Weise; 1:Aktiviert}
 
 

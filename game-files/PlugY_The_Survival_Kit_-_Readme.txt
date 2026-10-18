@@ -815,9 +815,10 @@ PlugY keeps two files per character next to the saves:
   new character starts clean; when only its files were replaced by other ones, only the .pyj is renamed.
 - <name>.pylive, the running-character lock: while one game runs a character, no other game can load or save it.
   With the multi-page stash (ActiveMultiPageStash=1) the lock ends with the game; without it, a Game.exe back at
-  the menu keeps its last character's lock until it loads another character or exits. The file stays on disk
-  afterwards and does no harm; a read-only .pylive still works as the lock. If the lock file can't be created (for
-  example in a save folder that refuses new files), the character runs without the lock.
+  the menu keeps its last character's lock until it loads another character or exits; a load of that same
+  character that fails because PlugY refuses it, or because its files can't be read, releases the lock too. The
+  file stays on disk afterwards and does no harm; a read-only .pylive still works as the lock. If the lock file
+  can't be created (for example in a save folder that refuses new files), the character runs without the lock.
 - ActiveCrashSafeSaves=1	{0:Saves are written the old way; 1:Enabled}
 
 

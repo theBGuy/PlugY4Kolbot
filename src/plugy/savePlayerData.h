@@ -36,7 +36,8 @@ struct CharacterRecovery
 	char file[MAX_PATH];	// the file a refusal names: quarantined, unreadable, or one an action could not change
 };
 // loadedHere: the current game plays the character (false at a load and at the first save of a new character).
-// Returns true when the save or load may go on: a proceeding verdict whose every action succeeded.
+// Returns true when the save or load may go on: a proceeding verdict whose every action succeeded. The journal is then
+// resolved, so a pending retry of name's save is dropped.
 bool recoverCharacterFiles(const char* name, bool loadedHere, CharacterRecovery* out);
 // The message box of a quarantine or a failed recovery action, naming the file the player must look at.
 void showRecoveryRefusal(const char* name, const CharacterRecovery* recovery, bool atLoad);
