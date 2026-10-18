@@ -703,10 +703,8 @@ Activé pour les nouvelles installations comme pour les mises à jour : un PlugY
 Avec 0, les sauvegardes sont écrites à l'ancienne, mais PlugY termine quand même une sauvegarde interrompue par un
 plantage et refuse quand même un personnage qu'une autre partie utilise déjà.
 Un arrêt au début d'une sauvegarde est annulé sans rien dire : le personnage charge sa sauvegarde précédente comme
-d'habitude. Après un arrêt à la fin d'une sauvegarde (une fois celle-ci validée), ou quand le chargement a dû
-attendre qu'une autre partie libère le personnage, le chargement suivant termine la sauvegarde et s'arrête une fois
-sur "Unable to enter game", sans boîte de dialogue, pour que la partie ne démarre jamais depuis une copie périmée.
-Chargez à nouveau le personnage ; D2Bot réessaie de lui-même.
+d'habitude. Après un arrêt à la fin d'une sauvegarde (une fois celle-ci validée), le chargement suivant termine la
+sauvegarde avant que le jeu ne lise le personnage : le personnage entre donc en jeu avec cette sauvegarde.
 Quand le .d2s est en lecture seule ou illisible (un autre programme le garde ouvert), une sauvegarde qui ne modifie
 pas le coffre partagé n'écrit ni le .d2s ni le .d2x (avec 0, le .d2x est quand même sauvegardé). Pendant la partie,
 un .d2x illisible empêche aussi une telle sauvegarde.
@@ -758,9 +756,10 @@ PlugY garde deux fichiers par personnage à côté des sauvegardes :
 - <nom>.pylive, le verrou du personnage en cours de jeu : tant qu'une partie utilise un personnage, aucune autre
   partie ne peut le charger ni le sauvegarder. Avec le coffre à pages multiples (ActiveMultiPageStash=1), le verrou
   prend fin avec la partie ; sans lui, un Game.exe revenu au menu garde le verrou de son dernier personnage jusqu'à
-  ce qu'il charge un autre personnage ou se ferme. Le fichier reste ensuite sur le disque, sans effet ; un .pylive
-  en lecture seule sert quand même de verrou. Si le fichier de verrou ne peut pas être créé (par exemple dans un
-  dossier de sauvegarde qui refuse les nouveaux fichiers), le personnage est joué sans le verrou.
+  ce qu'il charge un autre personnage ou se ferme ; un chargement de ce même personnage qui échoue, parce que PlugY
+  le refuse ou que ses fichiers sont illisibles, libère aussi le verrou. Le fichier reste ensuite sur le disque, sans
+  effet ; un .pylive en lecture seule sert quand même de verrou. Si le fichier de verrou ne peut pas être créé (par
+  exemple dans un dossier de sauvegarde qui refuse les nouveaux fichiers), le personnage est joué sans le verrou.
 - ActiveCrashSafeSaves=1	{0:Sauvegardes écrites à l'ancienne; 1:Activé}
 
 

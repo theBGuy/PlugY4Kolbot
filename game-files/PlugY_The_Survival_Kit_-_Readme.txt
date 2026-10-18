@@ -772,9 +772,8 @@ can still leave them out of step with the character; the .d2s is still written w
 On for new installs and for upgrades: a PlugY.ini without this line uses 1. With 0, saves are written the old way,
 but PlugY still finishes a save that a crash interrupted and still refuses a character that another game runs.
 A kill early in a save is undone without a word: the character loads its previous save as usual. After a kill late
-in a save (once the save was committed), or when the load had to wait for another game to release the character,
-the next load finishes the save and stops once at "Unable to enter game", without a message box, so the game never
-starts from an outdated copy. Load the character again; D2Bot retries by itself.
+in a save (once the save was committed), the next load finishes the save before the game reads the character, so
+the character enters the game with that save.
 When the .d2s is read-only or can't be read (another program holds it), a save that doesn't change the shared stash
 writes neither the .d2s nor the .d2x (with 0, the .d2x is still saved). During a game, a .d2x that can't be read
 skips such a save too.
@@ -816,9 +815,10 @@ PlugY keeps two files per character next to the saves:
   new character starts clean; when only its files were replaced by other ones, only the .pyj is renamed.
 - <name>.pylive, the running-character lock: while one game runs a character, no other game can load or save it.
   With the multi-page stash (ActiveMultiPageStash=1) the lock ends with the game; without it, a Game.exe back at
-  the menu keeps its last character's lock until it loads another character or exits. The file stays on disk
-  afterwards and does no harm; a read-only .pylive still works as the lock. If the lock file can't be created (for
-  example in a save folder that refuses new files), the character runs without the lock.
+  the menu keeps its last character's lock until it loads another character or exits; a load of that same
+  character that fails because PlugY refuses it, or because its files can't be read, releases the lock too. The
+  file stays on disk afterwards and does no harm; a read-only .pylive still works as the lock. If the lock file
+  can't be created (for example in a save folder that refuses new files), the character runs without the lock.
 - ActiveCrashSafeSaves=1	{0:Saves are written the old way; 1:Enabled}
 
 

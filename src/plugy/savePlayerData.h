@@ -30,15 +30,14 @@ struct CharacterRecovery
 	CommitVerdict verdict;
 	CommitQuarantineCause cause;
 	CommitParseStatus parse;
-	bool committed;			// the commit test held when recovery read the journal
-	bool rewroteD2s;		// an action replaced the .d2s
 	bool actionFailed;		// an action failed: everything after it, the journal included, stayed on disk
 	bool d2xFenced;			// the .d2x carries the save mark, version "0J"
 	DWORD readError;		// READ_ERROR: the open or read error of file
 	char file[MAX_PATH];	// the file a refusal names: quarantined, unreadable, or one an action could not change
 };
 // loadedHere: the current game plays the character (false at a load and at the first save of a new character).
-// Returns true when the save or load may go on: a proceeding verdict whose every action succeeded.
+// Returns true when the save or load may go on: a proceeding verdict whose every action succeeded. The journal is then
+// resolved, so a pending retry of name's save is dropped.
 bool recoverCharacterFiles(const char* name, bool loadedHere, CharacterRecovery* out);
 // The message box of a quarantine or a failed recovery action, naming the file the player must look at.
 void showRecoveryRefusal(const char* name, const CharacterRecovery* recovery, bool atLoad);
@@ -47,6 +46,8 @@ void showRecoveryRefusal(const char* name, const CharacterRecovery* recovery, bo
 // acquiring another name releases the previous one. waited: another process held it and released it meanwhile.
 bool acquireSessionLock(const char* name, DWORD waitMs, bool* waited, DWORD* error);
 void releaseSessionLockUnlessNamed(const char* name);
+// Releases this process's lock of name, if it holds one.
+void releaseSessionLockNamed(const char* name);
 // The lock is released with the server-side PlayerData that loaded the character, never with a client-side or
 // TCP/IP joiner's PlayerData of the same name.
 void setSessionLockOwner(PlayerData* playerData);

@@ -488,11 +488,6 @@ bool CommitVerdictProceeds(CommitVerdict verdict)
 		|| verdict == COMMIT_VERDICT_ROLL_BACK;
 }
 
-bool CommitLoadRefusesOnce(CommitVerdict verdict, bool committed, bool rewroteD2s, bool lockWaited)
-{
-	return rewroteD2s || lockWaited || (committed && verdict == COMMIT_VERDICT_ROLL_FORWARD);
-}
-
 const char* CommitVerdictName(CommitVerdict verdict)
 {
 	switch (verdict)

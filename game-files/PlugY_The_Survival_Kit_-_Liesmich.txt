@@ -807,10 +807,9 @@ Aktiv bei Neuinstallationen und bei Updates: Eine PlugY.ini ohne diese Zeile ver
 Weise gespeichert, aber PlugY schließt einen durch einen Absturz unterbrochenen Speichervorgang trotzdem ab und
 weist einen Charakter, den ein anderes Spiel gerade ausführt, weiterhin ab.
 Ein Abbruch früh im Speichervorgang wird stillschweigend rückgängig gemacht: Der Charakter lädt wie gewohnt seinen
-vorherigen Spielstand. Nach einem Abbruch spät im Speichervorgang (nachdem er festgeschrieben wurde) oder wenn das
-Laden warten musste, bis ein anderes Spiel den Charakter freigibt, schließt das nächste Laden den Speichervorgang ab
-und endet einmal mit "Unable to enter game", ohne Meldungsfenster, damit das Spiel nie mit einem veralteten Stand
-beginnt. Lade den Charakter erneut; D2Bot versucht es von selbst noch einmal.
+vorherigen Spielstand. Nach einem Abbruch spät im Speichervorgang (nachdem er festgeschrieben wurde) schließt das
+nächste Laden den Speichervorgang ab, bevor das Spiel den Charakter liest, sodass der Charakter mit diesem
+Spielstand ins Spiel kommt.
 Ist die .d2s schreibgeschützt oder nicht lesbar (ein anderes Programm hält sie offen), schreibt ein Speichervorgang,
 der den gemeinsamen Goldschatz nicht ändert, weder die .d2s noch die .d2x (mit 0 wird die .d2x trotzdem
 gespeichert). Während des Spiels überspringt PlugY einen solchen Speichervorgang auch bei einer nicht lesbaren .d2x.
@@ -863,9 +862,11 @@ PlugY legt pro Charakter zwei Dateien neben den Spielständen an:
 - <Name>.pylive, die Sperre des laufenden Charakters: Solange ein Spiel einen Charakter ausführt, kann ihn kein
   anderes Spiel laden oder speichern. Mit dem Mehrfachseiten-Goldschatz (ActiveMultiPageStash=1) endet die Sperre
   mit dem Spiel; ohne ihn behält ein Game.exe, das ins Menü zurückgekehrt ist, die Sperre seines letzten
-  Charakters, bis es einen anderen Charakter lädt oder beendet wird. Die Datei bleibt danach liegen und schadet
-  nicht; auch eine schreibgeschützte .pylive wirkt als Sperre. Lässt sich die Sperrdatei nicht anlegen (zum
-  Beispiel in einem Spielstand-Ordner, der keine neuen Dateien zulässt), läuft der Charakter ohne die Sperre.
+  Charakters, bis es einen anderen Charakter lädt oder beendet wird; scheitert ein Laden desselben Charakters,
+  weil PlugY es ablehnt oder seine Dateien nicht lesbar sind, wird die Sperre ebenfalls freigegeben. Die Datei
+  bleibt danach liegen und schadet nicht; auch eine schreibgeschützte .pylive wirkt als Sperre. Lässt sich die
+  Sperrdatei nicht anlegen (zum Beispiel in einem Spielstand-Ordner, der keine neuen Dateien zulässt), läuft der
+  Charakter ohne die Sperre.
 - ActiveCrashSafeSaves=1	{0:Speichern auf die alte Weise; 1:Aktiviert}
 
 
