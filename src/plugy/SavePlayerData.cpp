@@ -2190,7 +2190,7 @@ void Install_CharacterCommit()
 		log_msg("Crash-safe saves need Diablo II 1.14d: not installed. (CharacterCommit)\n\n");
 		return;
 	}
-	// The session lock ends with the server PlayerData that loaded the character, even with the multi-page stash off.
+	// The session lock ends with the server PlayerData that owns it, even with the multi-page stash off.
 	Install_PlayerDataFree();
 	log_msg("Patch D2Game for crash-safe single-player saves. (CharacterCommit)\n");
 
