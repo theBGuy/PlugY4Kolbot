@@ -106,6 +106,9 @@ struct PYPlayerData
 	char	pageName[21];
 };
 
+// The free of every PlayerData, which ends the session lock of the character it loaded. Install_PlayerCustomData
+// installs it, and so does Install_CharacterCommit on 1.14d whatever ActiveMultiPageStash says.
+void Install_PlayerDataFree();
 void Install_PlayerCustomData();
 
 /*================================= END OF FILE =================================*/

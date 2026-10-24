@@ -98,6 +98,9 @@ void STDCALL updateClientPlayerOnLoading(Unit* ptChar)
 
 /**************************** INIT CUSTOM DATA ****************************/
 
+// Set where init_PlayerCustomData is installed: only then does a PlayerData carry PlugY's block past the vanilla one.
+static bool playerDataExtended = false;
+
 PlayerData* FASTCALL init_PlayerCustomData(DWORD p1, DWORD size, LPCSTR file, DWORD line, DWORD p5)
 {
 	log_msg("init_PlayerCustomData\n");
@@ -123,18 +126,22 @@ void freeStash(Stash* ptStash)
 }
 
 
-void FASTCALL free_PlayerCustomData(DWORD p1, PlayerData* playerData, LPCSTR file, DWORD line, DWORD p5)
+// Every PlayerData free, server and client side; on 1.14d also with the multi-page stash off.
+void FASTCALL free_PlayerData(DWORD p1, PlayerData* playerData, LPCSTR file, DWORD line, DWORD p5)
 {
-	log_msg("free_PlayerCustomData\n");
-	PYPlayerData* ptPYPlayerData = (PYPlayerData*)((DWORD)playerData + shifting.ptPYPlayerData);
+	log_msg("free_PlayerData\n");
+	if (playerDataExtended)
+	{
+		PYPlayerData* ptPYPlayerData = (PYPlayerData*)((DWORD)playerData + shifting.ptPYPlayerData);
 
-	freeStash(ptPYPlayerData->selfStash);
-	free(ptPYPlayerData->selfStash);//D2FogMemDeAlloc(ptPYPlayerData->selfStash,__FILE__,__LINE__,0);
-	ptPYPlayerData->selfStash = NULL;
+		freeStash(ptPYPlayerData->selfStash);
+		free(ptPYPlayerData->selfStash);//D2FogMemDeAlloc(ptPYPlayerData->selfStash,__FILE__,__LINE__,0);
+		ptPYPlayerData->selfStash = NULL;
 
-	freeStash(ptPYPlayerData->sharedStash);
-	free(ptPYPlayerData->sharedStash);//D2FogMemDeAlloc(ptPYPlayerData->sharedStash,__FILE__,__LINE__,0);
-	ptPYPlayerData->sharedStash = NULL;
+		freeStash(ptPYPlayerData->sharedStash);
+		free(ptPYPlayerData->sharedStash);//D2FogMemDeAlloc(ptPYPlayerData->sharedStash,__FILE__,__LINE__,0);
+		ptPYPlayerData->sharedStash = NULL;
+	}
 
 	// Only the PlayerData whose load took the session lock releases it: the client-side copy and TCP/IP joiners are
 	// freed here too.
@@ -301,6 +308,28 @@ FCT_ASM ( callerClient_getNextItemToFree_9 )
 }}
 
 
+void Install_PlayerDataFree()
+{
+	static int isInstalled = false;
+	if (isInstalled) return;
+
+	log_msg("Patch D2Common for the free of player data. (PlayerDataFree)\n");
+
+	mem_seek R8(D2Common, 7055C, 7065C, 80483, 4F82D, 5C9CD, 5856D, 3093D, 1705D, 2220DD);
+	MEMJ_REF4( D2FreeMem, free_PlayerData);
+	//01BD0482  |. E8 C53E0000    CALL <JMP.&Fog.#10046>
+	//6FD9F82C  |. E8 E399FBFF    CALL <JMP.&Fog.#10046>
+	//6FDAC9CC  |. E8 3BC8FAFF    CALL <JMP.&Fog.#10046>
+	//6FDA856C  |. E8 E70CFBFF    CALL <JMP.&Fog.#10046>
+	//6FD8093C  |. E8 E788FDFF    CALL <JMP.&Fog.#10046>
+	//6FD6705C  |. E8 CF3EFFFF    CALL <JMP.&Fog.#10046>
+	//006220DC  |. E8 9F93DEFF    CALL Game.0040B480                       ; \Game.0040B480
+
+	log_msg("\n");
+
+	isInstalled = true;
+}
+
 void Install_PlayerCustomData()
 {
 	static int isInstalled = false;
@@ -309,12 +338,14 @@ void Install_PlayerCustomData()
 	Install_SavePlayerData();
 	Install_LoadPlayerData();
 	Install_UpdateClient();
+	Install_PlayerDataFree();
 
 	log_msg("Patch D2Game & D2Client & D2Common for Player's custom data. (PlayerCustomData)\n");
 
 	// Initialize custom data.
 	mem_seek(version_D2Client == V114d ? offset_D2Common + 0x221FDD : version_D2Client == V113d ? offset_D2Common + 0x170DE : version_D2Client == V113c ?  offset_D2Common + 0x309BE : version_D2Client == V112 ? offset_D2Common + 0x585EE : version_D2Client == V111b ? offset_D2Common + 0x5BFCE : version_D2Common == V111 ? offset_D2Common + 0x4ED5E :(DWORD)D2InitPlayerData + 0x62 );
 	MEMJ_REF4( D2AllocMem, init_PlayerCustomData);
+	playerDataExtended = true;
 	//01BD0381  |. E8 C03F0000    CALL <JMP.&Fog.#10045>
 	//6FD9ED5D  |. E8 94A4FBFF    CALL <JMP.&Fog.#10045>
 	//6FDABFCD  |. E8 34D2FAFF    CALL <JMP.&Fog.#10045>
@@ -398,17 +429,6 @@ void Install_PlayerCustomData()
 	//00539A21  |. 5E             POP ESI
 	//00539A22  |. 33C0           XOR EAX,EAX
 	//00539A24  |. 5B             POP EBX
-
-	// Free custom data.
-	mem_seek R8(D2Common, 7055C, 7065C, 80483, 4F82D, 5C9CD, 5856D, 3093D, 1705D, 2220DD);
-	MEMJ_REF4( D2FreeMem, free_PlayerCustomData);
-	//01BD0482  |. E8 C53E0000    CALL <JMP.&Fog.#10046>
-	//6FD9F82C  |. E8 E399FBFF    CALL <JMP.&Fog.#10046>
-	//6FDAC9CC  |. E8 3BC8FAFF    CALL <JMP.&Fog.#10046>
-	//6FDA856C  |. E8 E70CFBFF    CALL <JMP.&Fog.#10046>
-	//6FD8093C  |. E8 E788FDFF    CALL <JMP.&Fog.#10046>
-	//6FD6705C  |. E8 CF3EFFFF    CALL <JMP.&Fog.#10046>
-	//006220DC  |. E8 9F93DEFF    CALL Game.0040B480                       ; \Game.0040B480
 
 	// Free item in Stash (Server-side)
 	mem_seek R8(D2Game, 7D12B, 7D62B, 8D5A4, 99112, BFDB2, 94242, E1162, 6F7C2, 155B34);
