@@ -149,10 +149,9 @@ static void copyLoadName(char* out, const char* name)
 static bool prepareSPCharacterFiles(const char* name, bool* settled)
 {
 	*settled = false;
-	// D2Bot reuses Game.exe. With the multi-page stash, the character played before already released its lock when its
-	// server PlayerData was freed, after its last save; without it, that lock lasts until this process loads another
-	// character (here), a load of it fails, or the process exits. It is never released by a leaving save, which may
-	// still be running.
+	// D2Bot reuses Game.exe. The character played before released its lock when its server PlayerData was freed, after
+	// its last save; a lock still held under another name never reached that free, and goes here. It is never released
+	// by a leaving save, which may still be running.
 	releaseSessionLockUnlessNamed(name);
 	bool waited = false;
 	DWORD error = 0;
@@ -201,6 +200,15 @@ static void holdLoadForTest()
 	while (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
 		Sleep(20);
 	log_msg("Test hook: load released\n");
+}
+
+// PLUGY_LOAD_UNLOCKED=1: a load lets its lock go once the player is built, so the first save takes it, as a new
+// character's does.
+static bool loadUnlockedForTest()
+{
+	char flag[8];
+	DWORD len = GetEnvironmentVariableA("PLUGY_LOAD_UNLOCKED", flag, sizeof(flag));
+	return len && len < sizeof(flag) && atoi(flag) != 0;
 }
 #endif
 
@@ -290,6 +298,13 @@ DWORD STDCALL LoadSPCharacter_114(Unit* ptChar)
 		}
 		setSessionLockOwner(PCPlayerData);
 		markCharacterLoaded(name, PCGame);
+#ifdef PLUGY_TEST_HOOKS
+		if (loadUnlockedForTest())
+		{
+			log_msg("Test hook: load let its lock go\n");
+			releaseSessionLockNamed(name);
+		}
+#endif
 	}
 	else
 		abandonSPCharacterLoad();

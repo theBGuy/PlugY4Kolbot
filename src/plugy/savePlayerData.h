@@ -48,8 +48,8 @@ bool acquireSessionLock(const char* name, DWORD waitMs, bool* waited, DWORD* err
 void releaseSessionLockUnlessNamed(const char* name);
 // Releases this process's lock of name, if it holds one.
 void releaseSessionLockNamed(const char* name);
-// The lock is released with the server-side PlayerData that loaded the character, never with a client-side or
-// TCP/IP joiner's PlayerData of the same name.
+// The lock is released with the server-side PlayerData that owns it (the one whose load or save took it), never with a
+// client-side or TCP/IP joiner's PlayerData of the same name.
 void setSessionLockOwner(PlayerData* playerData);
 void releaseSessionLockOf(PlayerData* playerData);
 // After a load passed its checks: the game being loaded plays the character.

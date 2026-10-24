@@ -1315,8 +1315,8 @@ static bool nameFromSavePath(const char* path, char* name)
 }
 
 // Every .d2s write of D2SaveSPChar once the late hook is installed; vanilla's fopen "wb", fwrite and fclose never run.
-// d2s/d2sSize: the serializer's buffer, the very bytes vanilla would write.
-void STDCALL CharacterCommit_114(const char* d2sPath, const BYTE* d2s, DWORD d2sSize, DWORD isLeaving)
+// d2s/d2sSize: the serializer's buffer, the very bytes vanilla would write. ptChar: the player D2SaveSPChar saves.
+void STDCALL CharacterCommit_114(const char* d2sPath, const BYTE* d2s, DWORD d2sSize, DWORD isLeaving, Unit* ptChar)
 {
 	if (pendingSave.kind == PENDING_NONE)
 	{
@@ -1327,8 +1327,12 @@ void STDCALL CharacterCommit_114(const char* d2sPath, const BYTE* d2s, DWORD d2s
 		{
 			log_msg("Crash-safe save: no character name in %s, nothing saved\n", d2sPath);
 			setSaveResult(COMMIT_RESULT_ABORTED, lastSaveSeq);
+			return;
 		}
-		else if (!commitStepZero(name, isLeaving != 0, NULL, NULL))
+		// A lock this save takes, as a new character's first save does, ends with the saved player's PlayerData.
+		PlayerData* owner = ptChar && ptChar->nUnitType == UNIT_PLAYER && PCPlayerData
+			&& !_stricmp(PCPlayerData->name, name) ? PCPlayerData : NULL;
+		if (!commitStepZero(name, isLeaving != 0, owner, NULL))
 			setSaveResult(COMMIT_RESULT_ABORTED, lastSaveSeq);
 		else
 			writePlainSave(name, d2sPath, d2s, d2sSize, isLeaving != 0, false, NULL);
@@ -1424,8 +1428,10 @@ skipSave:
 // At 0x5322CE, after the serializer filled the buffer and its size (> 0: the JLE at 0x5322CC) went to EDI, NOP + CALL
 // replace LEA EAX,[EBP-0x1F8], so the CALL returns to 0x5322D4. The exit to 0x532327 skips vanilla's fopen/fwrite/
 // fclose and joins the epilogue the size <= 0 branch takes from the same stack depth (/GS check, RETN 8).
-// [EBP+0xC] is the leaving flag; the stdcall handler keeps EBX and EBP.
+// [EBP+0xC] is the leaving flag; the stdcall handler keeps EBX and EBP. [EBP-0x2604] is the saved player: the only
+// caller 0x5324EB passes it in EDX and EDI, the save entry hook keeps EDI, and the prologue pushes it (0x53225F).
 FCT_ASM ( caller_CharacterCommit_114 )
+	PUSH DWORD PTR SS:[EBP-0x2604]
 	PUSH DWORD PTR SS:[EBP+0xC]
 	PUSH EDI
 	LEA EAX,DWORD PTR SS:[EBP-0x25F8]
@@ -2170,8 +2176,9 @@ void Install_SavePlayerData()
 	isInstalled = true;
 }
 
-// Owns every crash-safe save patch. The load sites and the tick are installed whatever ActiveCrashSafeSaves says, so a
-// save a crash interrupted is always finished and a character always runs in one game at a time.
+// Owns every crash-safe save patch. The load sites, the tick and the PlayerData free are installed whatever
+// ActiveCrashSafeSaves says, so a save a crash interrupted is always finished and a character always runs in one game
+// at a time.
 void Install_CharacterCommit()
 {
 	static int isInstalled = false;
@@ -2183,6 +2190,8 @@ void Install_CharacterCommit()
 		log_msg("Crash-safe saves need Diablo II 1.14d: not installed. (CharacterCommit)\n\n");
 		return;
 	}
+	// The session lock ends with the server PlayerData that owns it, even with the multi-page stash off.
+	Install_PlayerDataFree();
 	log_msg("Patch D2Game for crash-safe single-player saves. (CharacterCommit)\n");
 
 #ifdef PLUGY_TEST_HOOKS
