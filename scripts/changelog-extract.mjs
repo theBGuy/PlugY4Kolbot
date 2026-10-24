@@ -5,10 +5,10 @@
 // changelog.d fragments (a pre-release never consumes them). When an earlier
 // pre-release since that stable release has a tag, the fragments whose file
 // names its tree lacked lead under "New since <it>", and the whole list follows
-// in a collapsed <details> block; without that tag, or when git can't tell, the
-// notes are the whole list alone. A stable tag with no section falls back to a
-// pointer line; the script always exits 0 so a notes problem never fails the
-// release. Usage:
+// in a collapsed <details> block. The whole list stands alone without that tag,
+// when git can't tell, or when every entry is new; when none is, the opening
+// paragraph says so. A stable tag with no section falls back to a pointer line;
+// the script always exits 0 so a notes problem never fails the release. Usage:
 //   node scripts/changelog-extract.mjs v14.4.0
 //   node scripts/changelog-extract.mjs v14.4.0-rc.1
 import { spawnSync } from "node:child_process";
@@ -231,7 +231,7 @@ export function buildReleaseNotes({ tag, changelogText, groups, delta, env = {} 
     // No pointer either way: the repo's CHANGELOG.md never gets a pre-release section.
     const withEntries = hasEntries(pending.split("\n"));
     const lastStable = lastStableVersion(lines);
-    const since = lastStable ?? "the last stable release";
+    const stableLabel = lastStable ?? "the last stable release";
     // Only fragments can be new: bullets written by hand into [Unreleased] have no
     // file name to compare, so they appear in the whole list alone.
     const newCount = delta ? countEntries(delta.groups) : 0;
@@ -243,12 +243,12 @@ export function buildReleaseNotes({ tag, changelogText, groups, delta, env = {} 
     } else if (newCount === 0) {
       const intro =
         `Pre-release of ${parsed.base} for testing; no entries were added since ${delta.since}, ` +
-        `and these notes cover everything since ${since}. ${PRERELEASE_SETTINGS}`;
+        `and these notes cover everything since ${stableLabel}. ${PRERELEASE_SETTINGS}`;
       notes = `${intro}\n\n${pending}`;
     } else {
       const intro =
         `Pre-release of ${parsed.base} for testing. What's new since ${delta.since} comes first; ` +
-        `every change since ${since} is listed below it. ${PRERELEASE_SETTINGS}`;
+        `every change since ${stableLabel} is listed below it. ${PRERELEASE_SETTINGS}`;
       const fresh = renderGroupBlocks(delta.groups).join("\n").trim();
       const count = pending.split("\n").filter((l) => /^[-*+] \S/.test(l)).length;
       notes = [
@@ -258,7 +258,7 @@ export function buildReleaseNotes({ tag, changelogText, groups, delta, env = {} 
         "",
         fresh,
         "",
-        `## Every change since ${since}`,
+        `## Every change since ${stableLabel}`,
         "",
         "<details>",
         `<summary>Show all ${count} changes</summary>`,
@@ -324,7 +324,8 @@ function git(root, args) {
 
 // The previous pre-release and the fragments new since its tree, or null when
 // there is none or git can't tell: the notes are then the whole list alone. A
-// failed git call says so on stderr, so a checkout without tags doesn't pass unseen.
+// failed git call says so on stderr. A checkout missing the earlier tags reads as
+// a first pre-release, with nothing on stderr: release.yml fetches every tag.
 function findDelta(root, version, changelogText, entries) {
   const failed = (what) => {
     process.stderr.write(`changelog-extract: git could not ${what}; the notes list every entry.\n`);
