@@ -15,7 +15,7 @@
 #define PLUGY_VERSION_MAJOR 15
 #define PLUGY_VERSION_MINOR 0
 #define PLUGY_VERSION_PATCH 0
-#define PLUGY_VERSION "15.0.0-rc.2"
+#define PLUGY_VERSION "15.0.0-rc.3"
 #define PLUGY_VERSION_FILE "15.0.0.0"
 
 #endif
