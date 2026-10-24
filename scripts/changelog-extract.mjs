@@ -2,21 +2,31 @@
 // Prints the release notes for a tag, for use as the GitHub Release body. A
 // stable tag gets its CHANGELOG.md section. A pre-release tag gets everything
 // since the last stable release: the [Unreleased] body merged with the pending
-// changelog.d fragments (a pre-release never consumes them). A stable tag with
-// no section falls back to a pointer line; the script always exits 0 so a notes problem
-// never fails the release. Usage:
+// changelog.d fragments (a pre-release never consumes them). When an earlier
+// pre-release since that stable release has a tag, the fragments whose file
+// names its tree lacked lead under "New since <it>", and the whole list follows
+// in a collapsed <details> block. The whole list stands alone without that tag,
+// when git can't tell, or when every entry is new; when none is, the opening
+// paragraph says so. A stable tag with no section falls back to a pointer line;
+// the script always exits 0 so a notes problem never fails the release. Usage:
 //   node scripts/changelog-extract.mjs v14.4.0
 //   node scripts/changelog-extract.mjs v14.4.0-rc.1
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  countEntries,
   findUnreleased,
   hasEntries,
   lastStableVersion,
+  newSinceGroups,
   pendingBody,
+  PRERELEASE_SETTINGS,
   prereleaseIntro,
+  previousPrerelease,
   readFragments,
+  renderGroupBlocks,
 } from "./changelog-lib.mjs";
 import { parseVersion } from "./version-lib.mjs";
 
@@ -200,10 +210,12 @@ function stableSection(lines, version) {
 /**
  * Build the release body for `tag`. Pure: `changelogText` is CHANGELOG.md's
  * text (null when unreadable) and `groups` the pending fragments, used only
- * for a pre-release tag. `env` supplies GITHUB_REPOSITORY / GITHUB_SERVER_URL
- * for the truncation footer's link.
+ * for a pre-release tag. `delta`, also pre-release only, is
+ * `{ since: <previous pre-release version>, groups: <its newSinceGroups> }`, or
+ * null when there is no previous pre-release to count from. `env` supplies
+ * GITHUB_REPOSITORY / GITHUB_SERVER_URL for the truncation footer's link.
  */
-export function buildReleaseNotes({ tag, changelogText, groups, env = {} }) {
+export function buildReleaseNotes({ tag, changelogText, groups, delta, env = {} }) {
   if (changelogText === null || changelogText === undefined) {
     return "See CHANGELOG.md for release notes.\n";
   }
@@ -214,16 +226,48 @@ export function buildReleaseNotes({ tag, changelogText, groups, env = {} }) {
   let notes;
   if (parsed?.channel) {
     const { body } = findUnreleased(lines);
-    const pending = pendingBody(
-      body,
-      groups ?? { Added: [], Changed: [], Fixed: [] },
-    )
-      .join("\n")
-      .trim();
+    const fragments = groups ?? { Added: [], Changed: [], Fixed: [] };
+    const pending = pendingBody(body, fragments).join("\n").trim();
     // No pointer either way: the repo's CHANGELOG.md never gets a pre-release section.
     const withEntries = hasEntries(pending.split("\n"));
-    const intro = prereleaseIntro(parsed.base, withEntries, lastStableVersion(lines));
-    notes = withEntries ? `${intro}\n\n${pending}` : intro;
+    const lastStable = lastStableVersion(lines);
+    const stableLabel = lastStable ?? "the last stable release";
+    // Only fragments can be new: bullets written by hand into [Unreleased] have no
+    // file name to compare, so they appear in the whole list alone.
+    const newCount = delta ? countEntries(delta.groups) : 0;
+    const allNew = newCount === countEntries(fragments) && !hasEntries(body);
+    if (!withEntries) {
+      notes = prereleaseIntro(parsed.base, false, lastStable);
+    } else if (!delta || allNew) {
+      notes = `${prereleaseIntro(parsed.base, true, lastStable)}\n\n${pending}`;
+    } else if (newCount === 0) {
+      const intro =
+        `Pre-release of ${parsed.base} for testing; no entries were added since ${delta.since}, ` +
+        `and these notes cover everything since ${stableLabel}. ${PRERELEASE_SETTINGS}`;
+      notes = `${intro}\n\n${pending}`;
+    } else {
+      const intro =
+        `Pre-release of ${parsed.base} for testing. What's new since ${delta.since} comes first; ` +
+        `every change since ${stableLabel} is listed below it. ${PRERELEASE_SETTINGS}`;
+      const fresh = renderGroupBlocks(delta.groups).join("\n").trim();
+      const count = pending.split("\n").filter((l) => /^[-*+] \S/.test(l)).length;
+      notes = [
+        intro,
+        "",
+        `## New since ${delta.since}`,
+        "",
+        fresh,
+        "",
+        `## Every change since ${stableLabel}`,
+        "",
+        "<details>",
+        `<summary>Show all ${count} changes</summary>`,
+        "",
+        pending,
+        "",
+        "</details>",
+      ].join("\n");
+    }
   } else {
     notes = stableSection(lines, version) || pointer(tag);
   }
@@ -242,16 +286,67 @@ export function buildReleaseNotes({ tag, changelogText, groups, env = {} }) {
   const budget = MAX_BYTES - byteLen(footer);
 
   // Keep whole lines only, so the truncated markdown still renders cleanly.
-  let kept = "";
+  const kept = [];
   let used = 0;
   for (const line of notes.split("\n")) {
-    const chunk = `${line}\n`;
-    const chunkBytes = byteLen(chunk);
+    const chunkBytes = byteLen(`${line}\n`);
     if (used + chunkBytes > budget) break;
-    kept += chunk;
+    kept.push(line);
     used += chunkBytes;
   }
-  return `${kept.trimEnd()}${footer}`;
+  // A <details> left open would swallow the footer, so each open level (blocks may
+  // nest) is closed within the budget.
+  const closer = "\n\n</details>";
+  const openDepth = () => {
+    let depth = 0;
+    for (const l of kept) {
+      if (l === "<details>") depth++;
+      else if (l === "</details>" && depth > 0) depth--;
+    }
+    return depth;
+  };
+  while (openDepth() > 0 && used + openDepth() * byteLen(closer) > budget) {
+    used -= byteLen(`${kept.pop()}\n`);
+  }
+  return `${kept.join("\n").trimEnd()}${closer.repeat(openDepth())}${footer}`;
+}
+
+// Git's stdout only, never its stderr: the release workflow takes this script's
+// stdout as the body. The ceiling keeps git from answering for a repository that
+// encloses a tree without history, and the variables a git hook exports would
+// point it at another one. Null when git fails in any way.
+function git(root, args) {
+  const env = { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) };
+  for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"]) delete env[name];
+  const r = spawnSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe", env });
+  return r.error || r.status !== 0 ? null : r.stdout;
+}
+
+// The previous pre-release and the fragments new since its tree, or null when
+// there is none or git can't tell: the notes are then the whole list alone. A
+// failed git call says so on stderr. A checkout missing the earlier tags reads as
+// a first pre-release, with nothing on stderr: release.yml fetches every tag.
+function findDelta(root, version, changelogText, entries) {
+  const failed = (what) => {
+    process.stderr.write(`changelog-extract: git could not ${what}; the notes list every entry.\n`);
+    return null;
+  };
+  try {
+    const tags = git(root, ["tag", "--list", "v*"]);
+    if (tags === null) return failed("list tags");
+    const since = previousPrerelease(tags, version, lastStableVersion(changelogText.split(/\r?\n/)));
+    if (since === null) return null;
+    // -z leaves non-ASCII names unquoted.
+    const listing = git(root, ["ls-tree", "-z", "--name-only", `v${since}`, "--", "changelog.d/"]);
+    if (listing === null) return failed(`read the tree of v${since}`);
+    const names = listing
+      .split("\0")
+      .filter((p) => p !== "")
+      .map((p) => p.replace(/^changelog\.d\//, ""));
+    return { since, groups: newSinceGroups(entries, names) };
+  } catch {
+    return null;
+  }
 }
 
 function main() {
@@ -265,12 +360,17 @@ function main() {
     } catch {
       // unreadable: buildReleaseNotes prints the generic pointer
     }
-    // Only a pre-release reads the fragments, so a malformed one can't touch a
-    // stable release's notes.
-    const groups = parseVersion(tag.replace(/^v/, ""))?.channel
-      ? readFragments(join(root, "changelog.d")).groups
-      : null;
-    out = buildReleaseNotes({ tag, changelogText, groups, env: process.env });
+    // Only a pre-release reads the fragments or asks git, so a malformed fragment
+    // can't touch a stable release's notes.
+    const version = tag.replace(/^v/, "");
+    let groups = null;
+    let delta = null;
+    if (parseVersion(version)?.channel) {
+      const fragments = readFragments(join(root, "changelog.d"));
+      groups = fragments.groups;
+      if (changelogText !== null) delta = findDelta(root, version, changelogText, fragments.entries);
+    }
+    out = buildReleaseNotes({ tag, changelogText, groups, delta, env: process.env });
   } catch (err) {
     // A malformed fragment must not fail the release; the pointer still ships.
     process.stderr.write(`changelog-extract: ${err.message}\n`);
