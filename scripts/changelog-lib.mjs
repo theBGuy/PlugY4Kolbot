@@ -9,7 +9,7 @@
 // keeps the checkout's line endings, like the CHANGELOG.md a stable release ships.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseVersion } from "./version-lib.mjs";
+import { compareVersions, parseVersion } from "./version-lib.mjs";
 
 // The Keep a Changelog groups we use, in the order they render.
 export const CATEGORY_ORDER = ["Added", "Changed", "Fixed"];
@@ -50,18 +50,20 @@ const categoryTitle = (lc) =>
  * Read every fragment in `dir`, grouped by category. Filenames are sorted with
  * localeCompare so output is deterministic regardless of FS enumeration order.
  * Throws (naming the file) on a malformed fragment. Returns
- * `{ files: string[], groups: { Added, Changed, Fixed } }`; `files` are the
- * absolute paths that were consumed (for deletion by the release script).
+ * `{ files: string[], groups: { Added, Changed, Fixed }, entries }`; `files` are
+ * the absolute paths that were consumed (for deletion by the release script),
+ * and `entries` the same fragments in the same order as `{ name, category, body }`.
  */
 export function readFragments(dir) {
   let names;
   try {
     names = readdirSync(dir);
   } catch {
-    return { files: [], groups: emptyGroups() };
+    return { files: [], groups: emptyGroups(), entries: [] };
   }
   const groups = emptyGroups();
   const files = [];
+  const entries = [];
   for (const name of names
     .filter((n) => FRAGMENT_RE.test(n))
     .sort((a, b) => a.localeCompare(b))) {
@@ -77,8 +79,45 @@ export function readFragments(dir) {
     }
     groups[category].push(body);
     files.push(path);
+    entries.push({ name, category, body });
   }
-  return { files, groups };
+  return { files, groups, entries };
+}
+
+/**
+ * The fragments `entries` (from readFragments) whose file name is not among
+ * `previousNames`, grouped like readFragments' `groups`. Names compare without
+ * case. A fragment counts by its name alone: rewording keeps it out, and renaming
+ * a substantially changed entry's file is how it comes back as new.
+ */
+export function newSinceGroups(entries, previousNames) {
+  const before = new Set([...previousNames].map((n) => n.toLowerCase()));
+  const groups = emptyGroups();
+  for (const { name, category, body } of entries) {
+    if (!before.has(name.toLowerCase())) groups[category].push(body);
+  }
+  return groups;
+}
+
+/**
+ * The pre-release a pre-release's notes count their new entries from: the
+ * highest `v`-prefixed pre-release tag in `git tag --list` output below
+ * `version` and above `lastStable` (no lower bound when null), without its
+ * "v". Any base counts, so 15.0.0-rc.3 precedes 15.1.0-rc.1. Null when none.
+ */
+export function previousPrerelease(tagListOutput, version, lastStable) {
+  if (!parseVersion(version)) return null;
+  const floor = parseVersion(lastStable) ? lastStable : null;
+  const candidates = (tagListOutput ?? "")
+    .split("\n")
+    .map((t) => t.trim())
+    .filter((t) => t.startsWith("v") && parseVersion(t.slice(1))?.channel)
+    .map((t) => t.slice(1))
+    .filter(
+      (v) => compareVersions(v, version) < 0 && (floor === null || compareVersions(v, floor) > 0),
+    );
+  candidates.sort((a, b) => compareVersions(b, a));
+  return candidates[0] ?? null;
 }
 
 // Split a fragment body into its bullets, each flattened to a single line: a
@@ -319,8 +358,9 @@ export const PRERELEASE_SETTINGS =
   "back to `0` and `stable` after each install or update.";
 
 /**
- * The paragraph a pre-release's notes open with, in its GitHub release and in
- * its packaged CHANGELOG.md alike. `base` is the version without its channel;
+ * The paragraph a pre-release's notes open with, in its packaged CHANGELOG.md,
+ * and in its GitHub release whenever those notes don't name a previous
+ * pre-release. `base` is the version without its channel;
  * `lastStable` names the release the notes count from (null: none recorded).
  */
 export const prereleaseIntro = (base, withEntries, lastStable) => {

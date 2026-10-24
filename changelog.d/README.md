@@ -56,6 +56,11 @@ Use at most one em dash per bullet; two read as a paired aside and fail
 `--check`. Em dashes inside backticks, **bold**, or "quotes" don't count, so
 quoted game text can keep its own.
 
+A fragment counts as new in the next pre-release's notes when its file name was
+not in the previous pre-release. Rewording a fragment keeps its name, so it stays
+out of the new entries; to put a substantially changed entry back on top, rename
+its fragment.
+
 ### Example: `added-show-error-message-box.md`
 
 ```md
@@ -99,7 +104,15 @@ quoted game text can keep its own.
   `CHANGELOG.md`, open with a paragraph that names the newest stable version in
   `CHANGELOG.md` (or "the last stable release" when it has none) and says that
   the pre-release's installer turns on full session logs and the pre-release
-  update channel (`PRERELEASE_SETTINGS` in `scripts/changelog-lib.mjs`).
+  update channel (`PRERELEASE_SETTINGS` in `scripts/changelog-lib.mjs`). The
+  previous pre-release is the highest pre-release tag (`v`, then a version with
+  `-alpha.N`, `-beta.N` or `-rc.N`) below the version being released and above
+  that stable version. When there is one, the notes lead with the fragments whose
+  file names its tagged `changelog.d/` lacked, under "New since <version>", and
+  list every pending entry below them in a collapsed block. Without one, when git
+  can't read it (the script says so on stderr), or when every entry is new, the
+  notes are the whole list alone, and when no entry is new, their opening
+  paragraph says so.
 - `node scripts/changelog-package.mjs <pre-release version> <output file>`
   writes the `CHANGELOG.md` a pre-release's zip and installer ship: the
   repository's file plus a section for that version built from the pending

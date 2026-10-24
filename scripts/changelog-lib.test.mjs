@@ -18,8 +18,10 @@ import {
   assembleChangelog,
   localDate,
   findUnreleased,
+  newSinceGroups,
   pendingBody,
   prereleaseIntro,
+  previousPrerelease,
   readFragments,
   readLF,
   validateFragments,
@@ -335,4 +337,83 @@ test("a leading UTF-8 BOM is stripped before a fragment is read or validated", (
     assert.deepEqual(validateFragments(dir), []);
     assert.equal(readFragments(dir).groups.Fixed[0], "- Written by PowerShell 5.1.");
   });
+});
+
+// --- pre-release deltas -------------------------------------------------------
+
+test("readFragments lists each fragment's name, category and body in its sorted order", () => {
+  const { groups, entries } = withFragments({ ...FRAGMENTS, "README.md": "# ignored\n" }, readFragments);
+  assert.deepEqual(entries, [
+    { name: "added-alpha.md", category: "Added", body: "- Alpha feature, with a wrapped\n  continuation line." },
+    { name: "changed-gamma.md", category: "Changed", body: "- Gamma change." },
+    { name: "fixed-beta.md", category: "Fixed", body: "- Beta fix." },
+  ]);
+  for (const { category, body } of entries) assert.ok(groups[category].includes(body));
+  assert.deepEqual(readFragments(join(tmpdir(), "plugy-no-such-dir-")).entries, []);
+});
+
+test("the previous pre-release is the highest pre-release tag between the last stable release and this one", () => {
+  const tags = [
+    "v14.00",
+    "v14.03",
+    "v14.3.0", // stable: never a previous pre-release
+    "v14.4.0-rc.1", // at or below the last stable release
+    "v15.0.0-alpha.1",
+    "v15.0.0-beta.2",
+    "v15.0.0-rc.1",
+    "v15.0.0-rc.2",
+    "v15.0.0-rc.3", // the version being released
+    "v15.0.0-rc.4", // above it
+    "v15.0.0",
+    "15.0.0-rc.2x",
+    "15.0.0-rc.2", // no v
+    "vgarbage",
+    "",
+    "  v15.0.0-rc.1  ",
+  ].join("\n");
+  assert.equal(previousPrerelease(tags, "15.0.0-rc.3", "14.4.0"), "15.0.0-rc.2");
+  assert.equal(previousPrerelease(tags, "15.0.0-rc.1", "14.4.0"), "15.0.0-beta.2");
+  assert.equal(previousPrerelease(tags, "15.0.0-beta.2", "14.4.0"), "15.0.0-alpha.1");
+  assert.equal(previousPrerelease(tags, "15.0.0-alpha.1", "14.4.0"), null);
+  // The last stable release bounds it from below; with none recorded, nothing does.
+  assert.equal(previousPrerelease(tags, "15.0.0-alpha.1", null), "14.4.0-rc.1");
+  assert.equal(previousPrerelease(tags, "15.0.0-alpha.1", "14.3.0"), "14.4.0-rc.1");
+  assert.equal(previousPrerelease("v14.4.0-rc.1\nv14.4.0\n", "15.0.0-rc.1", "14.4.0"), null);
+  // A beta precedes an rc of the same base, and a lower base precedes a higher one.
+  assert.equal(previousPrerelease("v15.0.0-beta.1\n", "15.0.0-rc.1", "14.3.0"), "15.0.0-beta.1");
+  assert.equal(previousPrerelease(tags, "15.1.0-rc.1", "14.3.0"), "15.0.0-rc.4");
+  assert.equal(previousPrerelease("v15.0.0-rc.2\nv15.0.0-rc.3\n", "15.1.0-rc.1", "14.3.0"), "15.0.0-rc.3");
+  assert.equal(previousPrerelease(tags, "15.1.0-rc.1", "15.0.0"), null);
+  // Inherited upstream tags never parse, so they never count.
+  assert.equal(previousPrerelease("v14.00\nv14.03\n", "15.0.0-rc.1", null), null);
+  // git on Windows may end lines with CRLF.
+  assert.equal(previousPrerelease("v15.0.0-rc.1\r\nv15.0.0-rc.2\r\n", "15.0.0-rc.3", "14.3.0"), "15.0.0-rc.2");
+  for (const empty of ["", null, undefined]) {
+    assert.equal(previousPrerelease(empty, "15.0.0-rc.3", "14.3.0"), null);
+  }
+});
+
+test("new-since groups hold the fragments whose file names the previous pre-release lacked", () => {
+  const entries = [
+    { name: "added-alpha.md", category: "Added", body: "- Alpha." },
+    { name: "added-renamed-on-top.md", category: "Added", body: "- Renamed." },
+    { name: "added-zeta.md", category: "Added", body: "- Zeta." },
+    { name: "changed-gamma.md", category: "Changed", body: "- Gamma, reworded." },
+    { name: "Fixed-Beta.md", category: "Fixed", body: "- Beta." },
+    { name: "fixed-delta.md", category: "Fixed", body: "- Delta." },
+  ];
+  // Rewording keeps a name (changed-gamma.md), renaming makes a new one (added-renamed-on-top.md,
+  // once added-renamed.md), and names match without case.
+  const before = ["README.md", "added-alpha.md", "added-renamed.md", "changed-gamma.md", "fixed-beta.md"];
+  assert.deepEqual(newSinceGroups(entries, before), {
+    Added: ["- Renamed.", "- Zeta."],
+    Changed: [],
+    Fixed: ["- Delta."],
+  });
+  assert.deepEqual(newSinceGroups(entries, new Set(["ADDED-ALPHA.MD"])), {
+    Added: ["- Renamed.", "- Zeta."],
+    Changed: ["- Gamma, reworded."],
+    Fixed: ["- Beta.", "- Delta."],
+  });
+  assert.deepEqual(newSinceGroups([], before), { Added: [], Changed: [], Fixed: [] });
 });

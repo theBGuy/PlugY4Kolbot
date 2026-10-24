@@ -52,7 +52,8 @@ jobs:
 
       - uses: actions/checkout@v7 # floating major; v7.0.1 was current on 2026-10-08
         with:
-          # Full history and branches, for the master-ancestry check below.
+          # Full history, branches and tags: the master-ancestry check below needs the
+          # history, and a pre-release's notes compare against the previous pre-release's tag.
           fetch-depth: 0
           persist-credentials: false
 
