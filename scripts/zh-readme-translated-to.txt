@@ -2,5 +2,5 @@
 # english: the master commit whose English readme it translates.
 # zh-tw: the master commit it was last checked against; later edits of it are listed until the next check.
 # Write it with node scripts/zh-readme-mark.mjs. Lines starting with # are ignored.
-english 81e0b2227d6ddfa6eaa659d837271b0553d2d1f5
-zh-tw 81e0b2227d6ddfa6eaa659d837271b0553d2d1f5
+english 48565a2ae941253f00f6f57884a9e26df9a55658
+zh-tw 48565a2ae941253f00f6f57884a9e26df9a55658
