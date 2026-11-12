@@ -9,6 +9,7 @@
 #include "infinityStash.h"
 #include "customLibraries.h"
 #include "common.h"
+#include "sharedStashLegacyRules.h"
 #include <stdio.h>
 
 #define FILE_SHAREDSTASH 0x00535353	//"SSS "
@@ -20,6 +21,19 @@
 static bool getSharedSaveFilePath(char* path, bool isHardcore)
 {
 	return getSaveFilePath(path, MAX_PATH, separateHardSoftStash && isHardcore ? "_LOD_HC_" : "_LOD_", sharedStashFilename, ".sss");
+}
+
+bool getSharedStashDatabasePath(char* path, bool isHardcore)
+{
+	return getSaveFilePath(path, MAX_PATH, separateHardSoftStash && isHardcore ? "_LOD_HC_" : "_LOD_", sharedStashFilename, ".sqlite3");
+}
+
+bool legacySharedStashAvailable(bool isHardcore)
+{
+	char path[MAX_PATH];
+	if (!getSharedStashDatabasePath(path, isHardcore))
+		return false;
+	return sharedStashLegacyPathAvailable(path);
 }
 
 
@@ -101,6 +115,13 @@ BYTE* readSharedSaveFile(char* name, DWORD* size, bool* fileExisted, char* fileP
 
 	if (active_sharedStash)
 	{
+		if (!legacySharedStashAvailable(isHardCore != 0))
+		{
+			if (filePath)
+				getSharedStashDatabasePath(filePath, isHardCore != 0);
+			log_msg("Shared stash load refused: a SQLite stash exists or its path cannot be checked; legacy .sss fallback is disabled.\n");
+			return NULL;
+		}
 		if (!getSharedSaveFilePath(filename, isHardCore != 0))
 			return NULL;
 		if (filePath)
@@ -109,6 +130,11 @@ BYTE* readSharedSaveFile(char* name, DWORD* size, bool* fileExisted, char* fileP
 		log_msg("Shared file to read : %s\n",filename);
 
 		HANDLE hLock = lockSharedSaveFile(filename);
+		if (!legacySharedStashAvailable(isHardCore != 0))
+		{
+			unlockSharedSaveFile(hLock);
+			return NULL;
+		}
 		found = readSaveFileData(filename, &data, size, FILE_MIN_SIZE);
 		unlockSharedSaveFile(hLock);
 		if (found < 0)
@@ -147,9 +173,10 @@ BYTE* readSharedSaveFile(char* name, DWORD* size, bool* fileExisted, char* fileP
 }
 
 
-int loadSharedSaveFile(Unit* ptChar, BYTE data[], DWORD maxSize)
+int loadSharedSaveFile(Unit* ptChar, BYTE data[], DWORD maxSize, DWORD* consumedSize)
 {
-	if ( !ptChar || !data) return false;
+	if (consumedSize) *consumedSize = 0;
+	if (!ptChar || !data || maxSize < FILE_MIN_SIZE) return 9;
 
 	log_msg("Load shared file\n");
 
@@ -166,6 +193,7 @@ int loadSharedSaveFile(Unit* ptChar, BYTE data[], DWORD maxSize)
 		curSize += 2;
 		PCPY->sharedGold = 0;
 	} else if (*(WORD *)&data[curSize] == FILE_VERSION) {
+		if (maxSize < 14) return 9;
 		curSize += 2;
 		PCPY->sharedGold = *(DWORD*)&data[curSize];
 		curSize += 4;
@@ -184,12 +212,18 @@ int loadSharedSaveFile(Unit* ptChar, BYTE data[], DWORD maxSize)
 	}
 
 	PCPY->sharedStashIsOpened = true;
+	if (!ret && consumedSize) *consumedSize = curSize;
 	return ret;
 }
 
 
 void writeSharedSaveFile(char* name, BYTE* data, DWORD size, bool isHardcore)
 {
+	if (!legacySharedStashAvailable(isHardcore))
+	{
+		log_box("PlugY refused a legacy shared stash save: a SQLite stash exists or its path cannot be checked.\nThe .sss file was left unchanged. SQLite stashes require Diablo II 1.14d single player.");
+		return;
+	}
 	char szSaveName[MAX_PATH];
 	if (!getSharedSaveFilePath(szSaveName, isHardcore))
 	{
@@ -199,7 +233,7 @@ void writeSharedSaveFile(char* name, BYTE* data, DWORD size, bool isHardcore)
 	log_msg("Shared file for saving : %s\n", szSaveName);
 
 	HANDLE hLock = lockSharedSaveFile(szSaveName);
-	bool saved = writeFileAtomic(szSaveName, data, size);
+	bool saved = legacySharedStashAvailable(isHardcore) && writeFileAtomic(szSaveName, data, size);
 	unlockSharedSaveFile(hLock);
 	// The box is raised only after unlocking, so a player reading it never blocks other games.
 	if (!saved)
@@ -281,6 +315,8 @@ static bool sharedSaveWritesNothing(Unit* ptChar, bool canonicalValid, DWORD can
 
 bool sharedSaveIsUnchanged(Unit* ptChar, bool isHardcore)
 {
+	if (!legacySharedStashAvailable(isHardcore))
+		return false;
 	DWORD canonicalHash;
 	bool canonicalValid = getSharedStashCanonicalHash(ptChar, &canonicalHash);
 	char path[MAX_PATH];
@@ -299,7 +335,7 @@ void checkSharedSaveParity(Unit* ptChar, bool isHardcore)
 	bool unchanged = PCPY->sharedBaselineValid && canonicalValid && canonicalHash == PCPY->sharedBaselineHash && !PCPY->sharedConflictStamp[0];
 	bool onlyMovedOnLoad = unchanged && PCPY->sharedMovedOnLoad;
 	char path[MAX_PATH];
-	bool writesNothing = getSharedSaveFilePath(path, isHardcore) && unchanged && !onlyMovedOnLoad && !isSaveFileMissing(path);
+	bool writesNothing = legacySharedStashAvailable(isHardcore) && getSharedSaveFilePath(path, isHardcore) && unchanged && !onlyMovedOnLoad && !isSaveFileMissing(path);
 	bool query = sharedSaveIsUnchanged(ptChar, isHardcore);
 	if (writesNothing != query)
 		log_msg("!!! SHARED SAVE PARITY MISMATCH: dry run says %s, sharedSaveIsUnchanged says %s\n", writesNothing ? "unchanged" : "changed", query ? "unchanged" : "changed");
@@ -313,6 +349,11 @@ void checkSharedSaveParity(Unit* ptChar, bool isHardcore)
 // Returns true when the file holds this game's shared items (written, unchanged, or only moved while loading).
 bool writeSharedSaveFileIfChanged(Unit* ptChar, BYTE* data, DWORD size, bool isHardcore, bool isLeaving)
 {
+	if (!legacySharedStashAvailable(isHardcore))
+	{
+		log_msg("Shared stash save refused: a SQLite stash exists or its path cannot be checked; legacy .sss writes are disabled.\n");
+		return false;
+	}
 	DWORD newHash = fnv1a(data, size);
 	DWORD canonicalHash;
 	bool canonicalValid = getSharedStashCanonicalHash(ptChar, &canonicalHash);
@@ -345,6 +386,12 @@ bool writeSharedSaveFileIfChanged(Unit* ptChar, BYTE* data, DWORD size, bool isH
 	else
 	{
 		HANDLE hLock = lockSharedSaveFile(szSaveName, isLeaving ? 20000 : 1000);
+		if (!legacySharedStashAvailable(isHardcore))
+		{
+			unlockSharedSaveFile(hLock);
+			log_msg("Shared stash save refused after locking: SQLite owns this stash.\n");
+			return false;
+		}
 		char szConflictName[MAX_PATH];
 		char tail[MAX_PATH + 64];
 		const char* conflictResult;

@@ -2,8 +2,8 @@
 
 A bot or script can drive PlugY's multi-page stash without ever leaving its home page. It can show any page,
 list what every page holds, and move a stash item to any page by its gid, with one request each and an answer
-it can wait for. The items on the page shown never leave D2BS's view, so references to them (the Horadric Cube
-above all) stay valid.
+it can wait for. Normal page moves keep the page shown in D2BS's view. A shared database item changed by
+another game may get a new local gid, so use LIST again after a stale or removed item.
 
 kolbot's own client for this protocol ships separately from PlugY4Kolbot. This page is the wire reference
 for anyone writing a client.
@@ -15,6 +15,9 @@ for anyone writing a client.
 - D2BS with `EnableUnsupported=true`, so scripts can call `sendPacket`.
 - A TCP/IP joiner must run PlugY4Kolbot with the same stash grid as the host. Otherwise the host refuses its
   requests with `CLIENT_MISMATCH`, rather than letting its view of the stash go stale.
+- Live SQLite shared-stash access is for single-player games on one PC, using one local save folder and
+  the same grid. A migrated shared stash is refused by the legacy TCP/IP path. See
+  [shared stash transactions](shared-stash-transactions.md) before first use.
 
 ## 1. Handshake
 
@@ -28,6 +31,11 @@ Before sending any request:
 - The ACK's `clientProto` must be 1 or more, and `clientGridMatch` 1. The client PlugY confirms the protocol
   when it receives the join-time `UC_PROTO`, so a HELLO sent right after joining can come back with
   `clientProto` 0. Wait a moment and send HELLO again (each HELLO re-sends `UC_PROTO`).
+
+The public protocol version and the 16-byte request remain version 1. `UC_PROTO`'s 32-bit flags at
+offset `+0C` announce database transactions with bit `0x02` (`PY_PROTO_SHARED_TRANSACTIONS`). This is
+separate from the ACK's one-byte feature bits. The client PlugY adds revision and request-ID checks
+for shared actions; scripts still send their normal `0x55` requests.
 
 ## 2. Requests: packet `0x55`, exactly 16 bytes, little-endian
 
@@ -65,7 +73,8 @@ A flag an op doesn't use is refused with `BAD_REQUEST`.
 ## 3. Answers: `0x9D` messages
 
 Each `0x9D` message's size is its byte +2. Parse by that, never by the length of the event array: one event can
-hold several messages. Bytes +04..+07 are always 0.
+hold several messages. `UC_ACK`, `UC_ITEM_MOVED`, and `UC_STASH_PAGE` keep bytes +04..+07 at 0;
+the private database messages below use those bytes for the player gid.
 
 ### `UC_ACK` (+01 = `0x21`, 36 bytes): one per request
 
@@ -103,7 +112,9 @@ drops it) or has no PlugY data, so always use a timeout.
 | 10 | CROSS_LIST | A personal <-> shared move without CROSS. |
 | 11 | INTERNAL | Should not happen. The item stays where it was or where a page switch would put it; the session log in PlugY\logs says why. |
 | 12 | CLIENT_MISMATCH | The client hasn't confirmed the protocol, or its grid differs. Send HELLO again, then retry. |
-| 13 | SHARED_CONFLICT | Shared moves are refused because the shared stash is in conflict. A running game doesn't send it: PlugY reports a conflict only in the save made when the player leaves. |
+| 13 | SHARED_CONFLICT | Legacy mode only: shared moves are refused because the shared stash is in conflict. A running game doesn't send it: PlugY reports a conflict only in the save made when the player leaves. |
+| 14 | STALE | The shared view changed. LIST again, find the current local gid and page, then make a new request. |
+| 15 | STORE_ERROR | The shared database could not accept this new action. Check the session log and storage before retrying. An earlier pending action may still finish; this is not a rollback notice. Never fall back to old `.sss` items. |
 
 | Feature bit | Meaning |
 |---|---|
@@ -113,7 +124,7 @@ drops it) or has no PlugY data, so always use a timeout.
 | `0x08` | This game loaded the personal stash |
 | `0x10` | Packet `0x55` is installed: requests may be sent |
 | `0x20` | Swaps keep pinned items on their page |
-| `0x40` | The shared stash is in conflict (set only by the save made when the player leaves, so a running game doesn't see it) |
+| `0x40` | Legacy shared-file conflict; database mode uses live `BUSY`, `STALE`, and `STORE_ERROR` results instead |
 | `0x80` | Page insert/delete keeps this client's pages in step |
 
 ### `UC_ITEM_MOVED` (+01 = `0x20`, 36 bytes)
@@ -152,19 +163,41 @@ between included. `WITH_EMPTY` adds the empty pages after it.
 Both are for the client's own PlugY. `UC_PROTO` carries the version, the stash grid and the pinned item codes;
 `UC_PAGE_OP` tells the client a page was inserted or deleted. A script can ignore both.
 
+### Private database messages (`0x25` through `0x28`)
+
+The client PlugY applies these 36-byte messages. Scripts should leave them in the receive buffer and
+ignore them unless they implement the database client itself.
+
+| Function | Purpose |
+|---|---|
+| `0x25` | Commit revision and session epoch, sent after the matching item/page updates. |
+| `0x26` | Detach a hidden shared item before its native unit-removal message. |
+| `0x27` | Reset shared-page layout while keeping native item units and gids alive for the following moves. |
+| `0x28` | Close the shared cube view when its ownership changes in another game. |
+
+Each carries the player gid at `+04`. Revision messages carry a 64-bit revision at `+08` and a 64-bit
+session epoch at `+10` (offsets are hexadecimal). These messages are distinct from native `0x9C`/`0x9D` item updates.
+
+The client send hook also puts a private 26-byte packet `0x56` immediately before a guarded action:
+revision (8 bytes at `+01`), request counter (8 at `+09`), session epoch (8 at `+11`), and the following
+action's packet ID (`+19`). Offsets here are hexadecimal. This packet is generated by PlugY; scripts
+must not make their own stamps or reuse another game's revision, counter, epoch, or gids.
+
 ## 4. Rules that keep items safe
 
 - Register the `gamepacket` listener only while a request waits, and always return `false` from it: returning
   `true` drops the rest of that receive buffer, PlugY's messages included.
-- MOVE is idempotent. If its answer is lost, send the same MOVE again: it answers NOOP and re-sends where the
-  item is (`UC_ITEM_MOVED` reason 1), which also repairs the client's view.
+- MOVE is idempotent while that local item still exists. If its answer is lost, send the same MOVE again:
+  it answers NOOP and re-sends where the item is (`UC_ITEM_MOVED` reason 1). On `STALE` or `NOT_FOUND`,
+  LIST again before choosing another request; never substitute a gid from another game.
 - Items on hidden pages are out of `me.getItems()`, but `getUnit(4, -1, -1, gid)` still finds each one. Use
   LIST to know where they are.
 - Insert and delete page requests (`/insertpage`, `/deletepage`, or the raw `0x3A` packets) are run by the
   server, which then tells the client, so the pages a script sees always match the pages saved.
 - With `PinnedItems` (`box` by default), swapping pages leaves pinned items where they are on both pages, and a
   swap that would put a pinned item and another item on the same cells is refused.
-- Known limit: PlugY reports a shared stash conflict only when the player leaves the game. Once another game has
-  saved the shared stash after this one loaded it, a shared move this game makes ends up in the conflict file written
-  when leaving, not in the main file, and once this game has changed the shared stash its character saves wait until
-  then. Shared moves therefore need explicit flags, and kolbot never makes them.
+- In database mode, a successful shared action commits before its success updates are sent. A failed commit
+  keeps ownership reserved and retries the commit without repeating the native action. Character saves wait
+  while that result is pending. `BUSY` is a reason to wait; `STALE` is a reason to LIST again.
+- The old save-time conflict-file rule applies only to the legacy shared-stash mode. Database mode never
+  writes a whole local shared-stash copy over the database at exit. Shared MOVE flags remain explicit.

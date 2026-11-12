@@ -13,6 +13,7 @@
 #include "infinityStash.h"
 #include "extendedSaveFile.h"
 #include "sharedSaveFile.h"
+#include "sharedStashSession.h"
 #include "loadPlayerData.h"
 #include "savePlayerData.h"
 #include "saveTransfer.h"
@@ -740,6 +741,11 @@ void setSessionLockOwner(PlayerData* playerData)
 	sessionLockOwner = playerData;
 }
 
+bool hasSessionLockOf(PlayerData* playerData)
+{
+	return playerData && sessionLockOwner == playerData && sessionLock != INVALID_HANDLE_VALUE;
+}
+
 // The game that played the character is over, even before the tick sees the next one.
 void releaseSessionLockOf(PlayerData* playerData)
 {
@@ -913,10 +919,20 @@ static bool collectExtendedSaveFile(Unit* ptChar, bool isLeaving, PendingSave* c
 static bool saveSPPlayerFiles(Unit* ptChar, bool isLeaving, PendingSave* collector)
 {
 	if (!D2isLODGame()) return true;//D2Game but in SP so np
+	const bool databaseStash = SharedStashActive(ptChar);
+	if (databaseStash && !SharedStashCanSave(ptChar))
+		return false;
 
 	log_msg("\n--- Start SaveSPPlayerCustomData (leaving:%d) ---\n", isLeaving);
 
 	NetClient* ptClient = D2GetClient(ptChar,__FILE__,__LINE__);
+	// A database created since this game loaded must never receive a stale .sss save, nor a partial character save.
+	if (!databaseStash && active_PlayerCustomData && active_sharedStash && PCPY->sharedStashIsOpened
+		&& !legacySharedStashAvailable(ptClient->isHardCoreGame != 0))
+	{
+		log_msg("Save refused: SQLite owns the shared stash; this game's legacy stash view cannot be saved.\n");
+		return false;
+	}
 	// One backup per game, at its first save: it holds the files as the game loaded them, and autosaves don't rotate
 	// older games' backups away. PYPlayerData exists only with the multi-page stash, so backup-only installs keep
 	// backing up when leaving.
@@ -929,7 +945,7 @@ static bool saveSPPlayerFiles(Unit* ptChar, bool isLeaving, PendingSave* collect
 
 	if (active_PlayerCustomData)
 	{
-		bool sharedOpened = active_sharedStash && PCPY->sharedStashIsOpened;
+		bool sharedOpened = !databaseStash && active_sharedStash && PCPY->sharedStashIsOpened;
 #ifdef PLUGY_TEST_HOOKS
 		if (collector && sharedOpened)
 			checkSharedSaveParity(ptChar, ptClient->isHardCoreGame != 0);
@@ -942,7 +958,7 @@ static bool saveSPPlayerFiles(Unit* ptChar, bool isLeaving, PendingSave* collect
 		BYTE* previousExt = NULL;
 		DWORD previousExtSize = 0;
 		int previousExtState = 0;
-		if (!isLeaving && active_sharedStash && PCPY->sharedStashIsOpened && PCPY->selfStashIsOpened)
+		if (!isLeaving && sharedOpened && PCPY->selfStashIsOpened)
 		{
 			previousExtState = readExtendedSaveFileCopy(PCPlayerData->name, &previousExt, &previousExtSize);
 			if (previousExtState < 0)
@@ -978,7 +994,7 @@ static bool saveSPPlayerFiles(Unit* ptChar, bool isLeaving, PendingSave* collect
 			collector->stashWritten = true;
 
 		bool skipSave = false;
-		if (active_sharedStash && PCPY->sharedStashIsOpened)
+		if (sharedOpened)
 		{
 			bool sharedSaved = false;
 			// The shared writer records the file's hash only when it replaces the file; its other true returns write nothing.
@@ -1032,6 +1048,7 @@ DWORD STDCALL SaveSPPlayerCustomData_114(Unit* ptChar, DWORD isLeaving)
 	// Once the game clears this flag D2SaveSPChar writes no .d2s, and a newer stash would no longer match the character.
 	if (!SPCharSaveEnabled)
 	{
+		SharedStashEndSave(ptChar);
 		log_msg("SaveSPPlayerCustomData : the game saves no character file now, so neither does PlugY\n");
 		dropPendingSave();
 		setSaveResult(COMMIT_RESULT_ABORTED, lastSaveSeq);
@@ -1039,11 +1056,14 @@ DWORD STDCALL SaveSPPlayerCustomData_114(Unit* ptChar, DWORD isLeaving)
 	}
 	if (!lateHookInstalled)
 		return saveSPPlayerFiles(ptChar, isLeaving != 0, NULL) ? 1 : 0;
+	if (!SharedStashBeginSave(ptChar))
+		return 0;
 
 	// Step 0 comes first on every path: no file of this save is read or written before a journal left open is resolved.
 	dropPendingSave();
 	if (!commitStepZero(PCPlayerData->name, isLeaving != 0, PCPlayerData, PCGame))
 	{
+		SharedStashEndSave(ptChar);
 		setSaveResult(COMMIT_RESULT_ABORTED, lastSaveSeq);
 		return 0;
 	}
@@ -1053,6 +1073,7 @@ DWORD STDCALL SaveSPPlayerCustomData_114(Unit* ptChar, DWORD isLeaving)
 	copyName(pendingSave.name, PCPlayerData->name);
 	if (!saveSPPlayerFiles(ptChar, isLeaving != 0, &pendingSave))
 	{
+		SharedStashEndSave(ptChar);
 		dropPendingSave();
 		setSaveResult(COMMIT_RESULT_ABORTED, lastSaveSeq);
 		return 0;
@@ -1318,6 +1339,8 @@ static bool nameFromSavePath(const char* path, char* name)
 // d2s/d2sSize: the serializer's buffer, the very bytes vanilla would write. ptChar: the player D2SaveSPChar saves.
 void STDCALL CharacterCommit_114(const char* d2sPath, const BYTE* d2s, DWORD d2sSize, DWORD isLeaving, Unit* ptChar)
 {
+	// The serializer has finished: restore the live cube view before disk I/O.
+	SharedStashEndSave(ptChar);
 	if (pendingSave.kind == PENDING_NONE)
 	{
 		// No entry hook ran (Install_SavePlayerData is only installed with backups or the multi-page stash), so step 0
@@ -1390,6 +1413,7 @@ static bool realmDatabaseLogged = false;
 void STDCALL CharacterCommitTick(Game* ptGame)
 {
 	noteGameFrame(ptGame);
+	SharedStashTick(ptGame);
 	if (lastSaveState == COMMIT_RESULT_PENDING)
 		resolveStalePending();
 	// Single player is assumed to have no realm database: with one, 0x532400 saves without D2SaveSPChar.
@@ -2201,7 +2225,7 @@ void Install_CharacterCommit()
 	log_msg("Test hook: allOrNothingLeaveSave = %d\n", allOrNothingLeaveSave);
 #endif
 
-	if (active_CrashSafeSaves)
+	if (active_CrashSafeSaves || (active_multiPageStash && active_SharedStashInMultiPlayer > 0))
 	{
 		// The .d2s write of D2SaveSPChar.
 		mem_seek R8(D2Game, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 0000, 1322CE);

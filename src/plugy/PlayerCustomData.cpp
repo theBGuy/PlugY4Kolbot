@@ -11,6 +11,8 @@
 #include "updateClient.h"
 #include "infinityStash.h"
 #include "stashProtocol.h"
+#include "sharedStashSession.h"
+#include "sharedStashTransport.h"
 #include "savePlayerData.h" //Install_SavePlayerData()
 #include "loadPlayerData.h" //Install_LoadPlayerData()
 #include "common.h"
@@ -93,6 +95,7 @@ void STDCALL updateClientPlayerOnLoading(Unit* ptChar)
 	}
 	sendProto(ptChar);	// after the page select, so a client confirming the handshake already shows its page
 	updateClient(ptChar, UC_SHARED_GOLD, PCPY->sharedGold, 0, 0);
+	SharedStashClientReady(ptChar);
 	log_msg("End update client on loading.\n\n");
 }
 
@@ -130,6 +133,8 @@ void freeStash(Stash* ptStash)
 void FASTCALL free_PlayerData(DWORD p1, PlayerData* playerData, LPCSTR file, DWORD line, DWORD p5)
 {
 	log_msg("free_PlayerData\n");
+	SharedStashClose(playerData);
+	SharedTransportClose(playerData);
 	if (playerDataExtended)
 	{
 		PYPlayerData* ptPYPlayerData = (PYPlayerData*)((DWORD)playerData + shifting.ptPYPlayerData);
@@ -148,10 +153,12 @@ void FASTCALL free_PlayerData(DWORD p1, PlayerData* playerData, LPCSTR file, DWO
 	releaseSessionLockOf(playerData);
 
 	D2FreeMem(p1,playerData,file,line,p5);
+	SharedStashAfterClose(playerData);
 }
 
 Unit* STDCALL getNextItemToFree(Unit* ptChar, Unit* ptItem)
 {
+	SharedStashBeginClose(ptChar);
 	Unit* item = D2UnitGetNextItem(ptItem);
 	if (item) return item;
 
@@ -183,7 +190,7 @@ Unit* STDCALL getNextItemToFree(Unit* ptChar, Unit* ptItem)
 		curStash = curStash->nextStash;
 	}
 
-	return NULL;
+	return SharedStashNextItemToFree(ptChar);
 }
 
 

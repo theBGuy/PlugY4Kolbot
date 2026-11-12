@@ -71,6 +71,7 @@ struct PYStashProto // size=0x24
 
 // UC_PROTO +0C flags
 #define PY_PROTO_SERVER_PAGE_OPS	0x01	// the server runs page insert/delete itself and tells the client with UC_PAGE_OP
+#define PY_PROTO_SHARED_TRANSACTIONS 0x02 // shared actions use database ownership and revision checks
 
 // UC_PAGE_OP +08 op
 #define PY_PAGE_OP_INSERT	1	// a new empty page after the page shown

@@ -9,6 +9,7 @@
 
 #include "infinityStash.h"
 #include "stashProtocol.h"
+#include "sharedStashNative.h"
 #include "updateClient.h"
 #include "interface_Stash.h"
 #include "customLibraries.h"
@@ -465,6 +466,9 @@ static bool holdItem(Unit* ptItem)
 // Replaces the loader's call to D2LoadPlaceItem (same register/stack contract).
 DWORD FASTCALL placeLoadedItem(Game* ptGame, Unit* ptChar, Unit* ptItem, Unit* ptParent)
 {
+	DWORD nativeResult;
+	if (SharedNativePlaceLoadedItem(ptGame, ptChar, ptItem, ptParent, &nativeResult))
+		return nativeResult;
 	DWORD ret = D2LoadPlaceItem(ptGame, ptChar, ptItem, ptParent);
 	// a failed stash placement leaves the item unplaced in cursor mode (4), the state D2PlaceItemInInventory needs
 	if (ret && holdUnplacedStashItems && ptItem && ptItem->mode == 4 && D2ItemGetPage(ptItem) == 4 && holdItem(ptItem))

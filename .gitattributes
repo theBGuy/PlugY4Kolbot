@@ -5,3 +5,6 @@
 # Shipped game files keep their exact bytes: PlugY's INI parser needs CRLF (src/plugy/INIfile.cpp), and two of
 # them are UTF-16.
 game-files/** -text
+
+# Keep the SQLite source bytes and its upstream whitespace unchanged.
+third_party/sqlite/sqlite3.[ch] -text -whitespace linguist-vendored

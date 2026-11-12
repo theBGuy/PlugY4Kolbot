@@ -51,6 +51,8 @@ void releaseSessionLockNamed(const char* name);
 // The lock is released with the server-side PlayerData that owns it (the one whose load or save took it), never with a
 // client-side or TCP/IP joiner's PlayerData of the same name.
 void setSessionLockOwner(PlayerData* playerData);
+// Database ownership requires a real exclusive character lock, not the legacy unlocked fallback.
+bool hasSessionLockOf(PlayerData* playerData);
 void releaseSessionLockOf(PlayerData* playerData);
 // After a load passed its checks: the game being loaded plays the character.
 void markCharacterLoaded(const char* name, Game* ptGame);

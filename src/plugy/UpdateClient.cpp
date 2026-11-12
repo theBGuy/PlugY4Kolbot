@@ -10,6 +10,7 @@
 #include "updateClient.h"
 #include "infinityStash.h"
 #include "stashProtocol.h"
+#include "sharedStashTransport.h"
 #include "statBonus.h"
 #include "commands.h"
 #include "common.h"
@@ -77,6 +78,10 @@ DWORD FASTCALL handleClientUpdate(DataPacket* packet)
 	case UC_STASH_PAGE : return 1;	// for scripts, like UC_ACK
 	case UC_PAGE_OP : applyPageOpClient((BYTE*)packet); return 1;
 	case UC_ADD_STAT : applyStatBonusClient(packet); return 1;
+	case PY_SHARED_REVISION_MESSAGE: SharedTransportApplyClient((const BYTE*)packet); return 1;
+	case PY_SHARED_DETACH_MESSAGE: SharedTransportApplyDetach((const BYTE*)packet); return 1;
+	case PY_SHARED_LAYOUT_MESSAGE: SharedTransportApplyLayout((const BYTE*)packet); return 1;
+	case PY_SHARED_CUBE_CLOSE_MESSAGE: SharedTransportApplyCloseCube((const BYTE*)packet); return 1;
 	default : return 0;
 	}
 }

@@ -6,6 +6,7 @@
 =================================================================*/
 
 #include "stashProtocol.h"
+#include "sharedStashSession.h"
 #include "infinityStash.h"
 #include "updateServer.h"
 #include "common.h"
@@ -127,6 +128,8 @@ void sendProto(Unit* ptChar)
 	for (DWORD i = 0; i < nbPinCodes && i < MAX_PIN_CODES; i++)
 		proto.pinCodes[i] = pinCodes[i];
 	proto.flags = PY_PROTO_SERVER_PAGE_OPS;
+	if (SharedStashActive(ptChar))
+		proto.flags |= PY_PROTO_SHARED_TRANSACTIONS;
 	sendToClient(ptChar, &proto, sizeof(proto));
 }
 

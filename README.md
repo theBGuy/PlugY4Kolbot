@@ -9,7 +9,7 @@ Extends Diablo II - Lord of Destruction by a number of useful features
 Each features can be turned on/off via PlugY.ini (see "COMMENTS ON THE CONFIGURATION FILE")
 * Disable access to Battle.net.
 * Infinite storage space in the stash.
-* Shared storage space in the stash.
+* Live shared stash (1.14d, single player): games on one PC use one SQLite stash with atomic mouse and bot actions. Changes appear in other games without a rejoin. The first use imports the old `.sss` and keeps its original bytes as a backup; close all old games and update every install first. See [shared stash transactions](docs/shared-stash-transactions.md).
 * Enable the ladder only runewords for singleplayer and TCP/IP game.
 * World Event and Uber Quest for singleplayer and TCP/IP game.
 * Can open Cow Level Portal even when player have kill the Cow King in that difficulty.
@@ -17,14 +17,14 @@ Each features can be turned on/off via PlugY.ini (see "COMMENTS ON THE CONFIGURA
 * Move Deckard Cain near the waypoint in Harrogath.
 * Unassign assigned skills and stats points.
 * Auto backup save files before saving.
-* Crash-safe saves (1.14d, single player, on by default): a save that doesn't change the shared stash lands whole, so after a crash or a kill the character and its stash load from the same complete save. `ActiveCrashSafeSaves=0` brings back the old save writer; either way, PlugY refuses to load a character another game is running.
+* Crash-safe character saves (1.14d, single player, on by default): the character and personal stash load from the same complete save after a crash or a kill. The shared database commits separately, so crash atomicity across it and the character files is not provided. Database mode keeps its save hook even with `ActiveCrashSafeSaves=0`. PlugY refuses to load a character another game is running.
 * Change the selected language.
 * Always regenerate maps in SinglePlayer like in MultiPlayer.
 * Automatically execute /players X when you launch a new game.
 * Added some pages for display more characters stats.
 * Display item level in its popup.
 * Launch any number of Diablo II games on the same computer.
-* Increase the stash to 10x10 squares; on 1.14d, with the multi-page stash, you can turn it off again without losing items.
+* Increase the stash to 10x10 squares; on 1.14d, the personal multi-page stash keeps its items when you turn it off again. Games using one shared database must use the same grid; a different grid is refused without changing the stash.
 * Stash requests for bots and scripts (1.14d): show any page, see what every page holds, and move items between pages without leaving the page shown (see [docs/stash-protocol.md](docs/stash-protocol.md)).
 * Pinned items (1.14d), the Horadric Cube by default, stay on their page when you swap stash pages.
 * Stat bonus (1.14d, a cheat, off by default): extra magic find and gold find for every character in the games you run.

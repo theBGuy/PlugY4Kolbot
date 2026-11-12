@@ -10,6 +10,7 @@
 #include "infinityStash.h"
 #include "extendedSaveFile.h"
 #include "sharedSaveFile.h"
+#include "sharedStashSession.h"
 #include "loadPlayerData.h"
 #include "savePlayerData.h"
 #include "saveTransfer.h"
@@ -67,22 +68,34 @@ DWORD STDCALL LoadSPCustomData(Unit* ptChar)
 		}
 		if (!ret && active_sharedStash)
 		{
-			bool sharedFileExisted = false;
-			char filePath[MAX_PATH];
-			data = readSharedSaveFile(PCPlayerData->name, &size, &sharedFileExisted, filePath);
-			if (!data)
+			if (version_D2Game == V114d && ClientGameMode == 0)
 			{
-				log_msg("LoadSPCustomData : can't read the shared save file\n");
-				ret = 0xE;//Unable to enter game, generic bad file
-			} else {
-				DWORD sharedDiskHash = fnv1a(data, size);
-				ret = loadSharedSaveFile(ptChar, data, size);
-				D2FogMemDeAlloc(data,__FILE__,__LINE__,0);
-				if (!ret)
-					initSharedStashBaseline(ptChar, sharedDiskHash, sharedFileExisted);
+				NetClient* client = D2GetClient(ptChar, __FILE__, __LINE__);
+				if (!client || !SharedStashLoad(ptChar, client->isHardCoreGame != 0))
+				{
+					log_box("PlugY could not open the shared stash database. See the session log for the cause. No legacy stash was used in its place.");
+					ret = 0xE;
+				}
 			}
-			if (ret)
-				showLoadError(filePath, ".sss");
+			else
+			{
+				bool sharedFileExisted = false;
+				char filePath[MAX_PATH];
+				data = readSharedSaveFile(PCPlayerData->name, &size, &sharedFileExisted, filePath);
+				if (!data)
+				{
+					log_msg("LoadSPCustomData : can't read the shared save file\n");
+					ret = 0xE;//Unable to enter game, generic bad file
+				} else {
+					DWORD sharedDiskHash = fnv1a(data, size);
+					ret = loadSharedSaveFile(ptChar, data, size);
+					D2FogMemDeAlloc(data,__FILE__,__LINE__,0);
+					if (!ret)
+						initSharedStashBaseline(ptChar, sharedDiskHash, sharedFileExisted);
+				}
+				if (ret)
+					showLoadError(filePath, ".sss");
+			}
 		}
 		if (!ret)
 			showMovedStashItemsNotice(ptChar);
