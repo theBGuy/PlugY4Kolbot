@@ -3,6 +3,12 @@
 #include <windows.h>
 #include <string.h>
 
+// Equip updates must reach the client before the replaced item's cursor update.
+inline bool sharedStashRepairCursorAfterAction(BYTE id)
+{
+	return id >= 0x16 && id <= 0x38 && (id < 0x1A || id > 0x1E);
+}
+
 // Stash close releases object interaction; adjacent 0x4F buttons move gold or transmute.
 inline bool sharedStashClosePacket(const BYTE* packet, DWORD size)
 {

@@ -1241,7 +1241,7 @@ bool SharedStashBeforeAction(Game* game, Unit* ptChar, const BYTE* packet, DWORD
 		}
 		session->operation = request.operation; session->pending = true; session->applied = false; session->recorded = false;
 		session->fine = fine;
-		session->repairCursor = packet[0] >= 0x16 && packet[0] <= 0x38;
+		session->repairCursor = sharedStashRepairCursorAfterAction(packet[0]);
 		session->actionGids.clear();
 		for (DWORD offset = 1; offset + 4 <= size; offset += 4) {
 			DWORD gid; memcpy(&gid, packet + offset, 4); session->actionGids.push_back(gid);
