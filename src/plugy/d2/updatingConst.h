@@ -113,5 +113,7 @@ enum UpdateServerConst
 #define PY_STATUS_INTERNAL			11
 #define PY_STATUS_CLIENT_MISMATCH	12
 #define PY_STATUS_SHARED_CONFLICT	13
+#define PY_STATUS_STALE				14	// refresh pages before retrying the action
+#define PY_STATUS_STORE_ERROR		15	// database unavailable; no new shared action was run
 
 /*================================= END OF FILE =================================*/

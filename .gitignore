@@ -40,4 +40,5 @@
 /src/launcher/PlugYRun.aps
 /harness/
 /build/out/
+/build/native-stash-analysis/
 /dist/

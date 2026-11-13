@@ -8,11 +8,16 @@
 
 #include "common.h"
 
+// Once a database exists, legacy readers and writers must never fall back to .sss.
+bool getSharedStashDatabasePath(char* path, bool isHardcore);
+bool legacySharedStashAvailable(bool isHardcore);
+
 // filePath (MAX_PATH chars, optional) receives the shared file's path, or "" when it couldn't be built.
 BYTE* readSharedSaveFile(char* name, DWORD* size, bool* fileExisted = NULL, char* filePath = NULL);
 void writeSharedSaveFile(char* name, BYTE* data, DWORD size, bool isHardcore);
 
-int loadSharedSaveFile(Unit* ptChar, BYTE* data, DWORD maxSize);
+// Migration checks consumedSize against the source size so opaque extension trailers cannot be dropped.
+int loadSharedSaveFile(Unit* ptChar, BYTE* data, DWORD maxSize, DWORD* consumedSize = NULL);
 void saveSharedSaveFile(Unit* ptChar, BYTE** data, DWORD* maxSize, DWORD* curSize);
 
 void initSharedStashBaseline(Unit* ptChar, DWORD diskHash, bool diskExisted);

@@ -10,6 +10,9 @@
 #include "common.h"
 #include "infinityStash.h"
 #include "mainScreen.h"
+#ifdef PLUGY_TEST_HOOKS
+#include "sharedStashTest.h"
+#endif
 #include <stdio.h>
 
 bool active_DisplayItemLevel = false;
@@ -252,6 +255,9 @@ void SendPlayersCommand()
 // features: a second patch on this call site would fail the CheckMemory test.
 void inGameFrame()
 {
+#ifdef PLUGY_TEST_HOOKS
+	SharedStashTestClientFrame();
+#endif
 	if (nbPlayersCommandByDefault)
 		SendPlayersCommand();
 	if (active_CheckForUpdates)

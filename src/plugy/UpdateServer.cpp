@@ -256,11 +256,13 @@ FCT_ASM( caller_handleServerUpdate_114)
 	MOV EDI,EAX
 	RETN
 END_RCM:
-	ADD ESP,8
+	// The 1.14d handler saves EBP, EBX, ESI, EDI. Drop only this hook's return address.
+	ADD ESP,4
 	POP EDI
 	POP ESI
 	XOR EAX,EAX
 	POP EBX
+	POP EBP
 	RETN 8
 }}
 
