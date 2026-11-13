@@ -11,7 +11,7 @@
 namespace SharedStash {
 namespace {
 const int ApplicationId = 0x50595348;
-enum { ITEM = 1, CELL = 2, LEGACY_PAGE = 3, GOLD = 4, LAYOUT = 5 };
+enum { ITEM = 1, CELL = 2, GOLD = 4, LAYOUT = 5 };
 struct Session {
     unsigned long pid;
     Id creationTime;
@@ -140,15 +140,12 @@ void lock(sqlite3* db,const std::string& op,int kind,Id a=0,Id b=0,Id c=0) {
     if(q.row()) { require(q.string(0)==op,BUSY,"resource reserved by another operation"); return; }
     Query put(db,"INSERT INTO locks VALUES(?,?,?,?,?)"); put.number(1,kind).number(2,a).number(3,b).number(4,c).text(5,op).row();
 }
-void checkPageLock(sqlite3* db,Id page,const std::string& op) {
-    Query q(db,"SELECT operation FROM locks WHERE kind=3 AND a=? AND operation<>?"); require(!q.number(1,page).text(2,op).row(),BUSY,"page reserved");
-}
 void lockRect(sqlite3* db,const std::string& op,const Rect& r) {
-    checkPageLock(db,r.page,op); for(int y=r.y;y<r.y+r.height;++y) for(int x=r.x;x<r.x+r.width;++x) lock(db,op,CELL,scope(r),x,y);
+    for(int y=r.y;y<r.y+r.height;++y) for(int x=r.x;x<r.x+r.width;++x) lock(db,op,CELL,scope(r),x,y);
 }
-bool canChangeItem(sqlite3* db,const std::string& op,const Item& a) { return owns(db,op,ITEM,a.id) || owns(db,op,LEGACY_PAGE,a.page) || owns(db,op,LAYOUT); }
+bool canChangeItem(sqlite3* db,const std::string& op,const Item& a) { return owns(db,op,ITEM,a.id) || owns(db,op,LAYOUT); }
 void checkTargetLock(sqlite3* db,const std::string& op,const Item& a) {
-    if(owns(db,op,LEGACY_PAGE,a.page) || owns(db,op,LAYOUT)) return;
+    if(owns(db,op,LAYOUT)) return;
     for(int y=a.y;y<a.y+a.height;++y) for(int x=a.x;x<a.x+a.width;++x) require(owns(db,op,CELL,scope(rect(a)),x,y),INVALID,"target cell was not reserved");
 }
 void putItem(sqlite3* db,Item a) {
@@ -187,7 +184,6 @@ void lockFamily(sqlite3* db, const std::string& operation, Id id) {
     Item item = getItem(db, id);
     Item root = item.parent ? getItem(db, item.parent) : item;
     require(root.parent == 0, INVALID, "nested item inventory");
-    checkPageLock(db, root.page, operation);
     lock(db, operation, ITEM, root.id);
     lockRect(db, operation, rect(root));
 
