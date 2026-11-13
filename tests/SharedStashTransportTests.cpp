@@ -234,6 +234,27 @@ void testCubeClose() {
     CHECK(cubeCloses == 1);
 }
 
+void testStashClose() {
+    clientStamp = ClientStamp();
+    publishTestRevision(7, 201);
+    BYTE close[7] = {0x4F, 0x12};
+    for (int failed = 0; failed < 2; ++failed) {
+        clientStamp.refreshFailed = failed != 0;
+        clientStamp.counter = ~(Counter)0;
+        sentPackets.clear();
+        CHECK(stampedSend(sizeof(close), 0, close) == 1);
+        CHECK(sentPackets.size() == 1 && sentPackets[0] == SharedStash::Bytes(close, close + sizeof(close)));
+        CHECK(clientStamp.counter == ~(Counter)0 && clientStamp.refreshFailed == (failed != 0));
+        const BYTE guardedButtons[] = {0x13, 0x14, 0x17, 0x18};
+        for (unsigned i = 0; i < sizeof(guardedButtons); ++i) {
+            BYTE action[7] = {0x4F, guardedButtons[i]};
+            sentPackets.clear();
+            CHECK(stampedSend(sizeof(action), 0, action) == 0 && sentPackets.empty());
+        }
+    }
+    clientStamp = ClientStamp();
+}
+
 void testRefreshFailureLatch() {
     clientStamp = ClientStamp();
     publishTestRevision(7, 201);
@@ -334,6 +355,7 @@ int main() {
     testRequestStamps();
     testLayoutChanges();
     testCubeClose();
+    testStashClose();
     testRefreshFailureLatch();
 
     DeleteCriticalSection(&serverLock);

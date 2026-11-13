@@ -3,6 +3,12 @@
 #include <windows.h>
 #include <string.h>
 
+// Stash close releases object interaction; adjacent 0x4F buttons move gold or transmute.
+inline bool sharedStashClosePacket(const BYTE* packet, DWORD size)
+{
+	return packet && size == 7 && packet[0] == 0x4F && packet[1] == 0x12 && packet[2] == 0;
+}
+
 // The one-byte server command 0x06 sets the client's game-exit flag.
 inline bool sharedStashExitPacket(const BYTE* packet, DWORD size)
 {

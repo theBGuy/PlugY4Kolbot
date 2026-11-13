@@ -22,6 +22,19 @@ static void compact(DWORD value, DWORD bits)
 
 int main()
 {
+	BYTE close[8] = {0x4F, 0x12};
+	CHECK(!sharedStashClosePacket(NULL, 7));
+	for (DWORD size = 0; size <= sizeof(close); ++size)
+		CHECK(sharedStashClosePacket(close, size) == (size == 7));
+	for (unsigned button = 0; button <= 0xFFFF; ++button) {
+		close[1] = (BYTE)button; close[2] = (BYTE)(button >> 8);
+		CHECK(sharedStashClosePacket(close, 7) == (button == 0x12));
+	}
+	close[1] = 0x12; close[2] = 0;
+	for (unsigned id = 0; id <= 0xFF; ++id) {
+		close[0] = (BYTE)id;
+		CHECK(sharedStashClosePacket(close, 7) == (id == 0x4F));
+	}
 	BYTE exit[2] = {0x06, 0};
 	CHECK(sharedStashExitPacket(exit, 1));
 	CHECK(!sharedStashExitPacket(exit, 0));

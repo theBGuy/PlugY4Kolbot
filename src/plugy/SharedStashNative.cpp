@@ -48,6 +48,7 @@ void* clientOf(Unit* ptChar)
 DWORD FASTCALL dispatch(Game* game, Unit* ptChar, BYTE* packet, DWORD size)
 {
 	if (!packet || !size || packet[0] >= 0x67 || !originalHandlers[packet[0]]) return 3;
+	if (sharedStashClosePacket(packet, size)) return originalHandlers[packet[0]](game, ptChar, packet, size);
 	try {
 		if (beforeAction && !beforeAction(game, ptChar, packet, size)) return 0;
 	} catch (...) {

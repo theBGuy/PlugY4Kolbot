@@ -79,6 +79,7 @@ DWORD STDCALL stampedSend(DWORD size, DWORD one, void* data) {
     // The lock covers both native sends. No other sending thread may place an action
     // between its stamp and packet. Calling the trampoline never enters this hook again.
     Guard lock(sendLock);
+    if (sharedStashClosePacket((const BYTE*)data, size)) return originalSend(size, one, data);
     if (data && size && ClientGameMode == 0 && clientStamp.refreshFailed
         && D2GetClientPlayer() == clientStamp.player && sharedStashActionPacket(*(BYTE*)data)) return 0;
     if (data && size && ClientGameMode == 0 && clientStamp.epoch && clientStamp.revision >= 0) {

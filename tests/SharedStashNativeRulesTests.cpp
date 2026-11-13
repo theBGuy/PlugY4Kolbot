@@ -29,6 +29,11 @@ void log_msg(const char*, ...) {}
 DWORD FASTCALL handleStashPacket(Game*, Unit*, BYTE*, DWORD) { return 0; }
 static DWORD FASTCALL foreignHandler(Game*, Unit*, BYTE*, DWORD) { return 1; }
 
+static unsigned nativeCalls = 0, beforeCalls = 0, afterCalls = 0;
+static DWORD FASTCALL objectHandler(Game*, Unit*, BYTE*, DWORD) { ++nativeCalls; return 2; }
+static bool refuseAction(Game*, Unit*, const BYTE*, DWORD) { ++beforeCalls; return false; }
+static void recordAfter(Unit*) { ++afterCalls; }
+
 static unsigned checks = 0, failures = 0;
 #define CHECK(value) do { ++checks; if (!(value)) { ++failures; printf("FAIL %u: %s\n", __LINE__, #value); } } while (0)
 
@@ -56,6 +61,19 @@ int main()
 	CHECK(!SharedNativeWrapsStashPacket());
 	version_D2Game = V114d;
 	CHECK(SharedNativeWrapsStashPacket());
+
+	originalHandlers[0x4F] = objectHandler;
+	beforeAction = refuseAction;
+	afterAction = recordAfter;
+	BYTE close[7] = {0x4F, 0x12};
+	CHECK(dispatch(NULL, NULL, close, sizeof(close)) == 2);
+	CHECK(nativeCalls == 1 && beforeCalls == 0 && afterCalls == 0);
+	const BYTE guardedButtons[] = {0x13, 0x14, 0x17, 0x18};
+	for (unsigned i = 0; i < sizeof(guardedButtons); ++i) {
+		close[1] = guardedButtons[i];
+		CHECK(dispatch(NULL, NULL, close, sizeof(close)) == 0);
+	}
+	CHECK(nativeCalls == 1 && beforeCalls == 4 && afterCalls == 0);
 	printf("Shared stash native wrapper: %u checks, %u failures\n", checks, failures);
 	return failures ? 1 : 0;
 }
