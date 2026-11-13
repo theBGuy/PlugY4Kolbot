@@ -1,6 +1,7 @@
 #include "SharedStashNative.h"
 #include "infinityStash.h"
 #include "sharedStashTransport.h"
+#include "stashProtocol.h"
 #include "sharedStashItemPacketRules.h"
 #include <map>
 #include <vector>
@@ -66,6 +67,8 @@ DWORD FASTCALL dispatch(Game* game, Unit* ptChar, BYTE* packet, DWORD size)
 // Native SCmd send is EDI=NetClient, stack=(packet,size), callee pops 8.
 DWORD STDCALL captureSend(void* client, const BYTE* data, DWORD size)
 {
+	// Leaving the game must not wait for a shared-stash commit.
+	if (sharedStashExitPacket(data, size)) return 0;
 	DWORD captured = 0;
 	// Passive item timers can send without an action handler. Let the session establish ownership first.
 	EnterCriticalSection(&heldLock);
@@ -178,6 +181,13 @@ bool Install_SharedStashNative(SharedNativeBeforeAction before, SharedNativeAfte
 }
 
 bool SharedNativeReady() { return installed; }
+
+bool SharedNativeWrapsStashPacket()
+{
+	return installed && version_D2Game == V114d
+		&& originalHandlers[PY_STASH_PACKET] == handleStashPacket
+		&& *(DWORD*)(offset_D2Game + 0x2E0D18 + PY_STASH_PACKET * 8) == (DWORD)dispatch;
+}
 
 void SharedNativeSetBeforeSend(SharedNativeBeforeSend callback) { beforeSend = callback; }
 

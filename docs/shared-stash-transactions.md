@@ -20,6 +20,10 @@ private cube first if its contents would conflict with that transfer. Legacy
 character-owned cube contents without a personal cube are kept on personal
 `Moved items` pages, rather than silently added to a shared cube.
 
+With cube pinning off, cross-stash page swaps load a moving cube's contents
+before the swap. A swap that cannot fit those contents in the character's
+single private cube grid is refused before any item changes owner.
+
 ## First use and backups
 
 Close all games that use the stash before the first start with this build.
@@ -77,6 +81,11 @@ action again. Character saves wait until finalization is complete. Reservations
 have no timer that can expire while their owner still runs. Recovery checks the
 owning Windows process and its creation time before releasing a dead owner's
 reservation.
+
+If a game ends while that cleanup cannot write, a record with only the database
+connection and session token keeps the work. A menu timer tries again, so an
+owner at the menu does not hold other games' stash access until its process exits.
+The game-exit packet is never held with item updates.
 
 SQLite uses WAL and full synchronization. Reads can run together; its short write
 transactions run in order. No separate service is needed.

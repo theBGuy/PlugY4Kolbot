@@ -11,6 +11,8 @@
 #include "windowed.h"
 #include "common.h"
 #include "../common/UpdateCheck.h"
+#include "../common/SharedStashCleanup.h"
+#include "infinityStash.h"
 #include "updateNoticeRules.h"
 #include <stdio.h>
 #include <string.h>
@@ -201,6 +203,9 @@ void updateNoticeFrame()
 
 void STDCALL printPlugYVersion(void** childrens, DWORD* sgnNumChildren)
 {
+	if (version_D2Game == V114d && active_multiPageStash && active_SharedStashInMultiPlayer > 0)
+		if (!SharedStash::startCleanupTimer())
+			log_msg("Shared stash cleanup timer could not be started (error %u).\n", GetLastError());
 	if (active_Windowed)
 		SetWindowedOptions();
 	if (active_PrintPlugYVersion)

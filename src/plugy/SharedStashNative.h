@@ -11,6 +11,7 @@ typedef bool (*SharedNativeBeforeSend)(void*, const BYTE*, DWORD);
 // Install after the custom 0x3A/0x55 handlers. Call on the install thread before play.
 bool Install_SharedStashNative(SharedNativeBeforeAction before, SharedNativeAfterAction after);
 bool SharedNativeReady();
+bool SharedNativeWrapsStashPacket();
 // Set during startup. Runs outside the buffer lock; false suppresses the original packet.
 void SharedNativeSetBeforeSend(SharedNativeBeforeSend callback);
 

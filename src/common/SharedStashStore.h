@@ -61,6 +61,7 @@ namespace SharedStash
     class Store {
     public:
         Store();
+        Store(Store&& other) noexcept;
         ~Store();
         Status open(const char* path, int width, int height, int busyMs = 20);
         void close();

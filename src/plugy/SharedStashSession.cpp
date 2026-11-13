@@ -1,5 +1,6 @@
 #include "sharedStashSession.h"
 #include "sharedStashSnapshot.h"
+#include "sharedStashCubeSwapRules.h"
 #include "SharedStashNative.h"
 #include "sharedStashTransport.h"
 #include "sharedSaveFile.h"
@@ -8,6 +9,7 @@
 #include "stashProtocol.h"
 #include "updateClient.h"
 #include "customLibraries.h"
+#include "../common/SharedStashCleanup.h"
 #ifdef PLUGY_TEST_HOOKS
 #include "sharedStashTest.h"
 #endif
@@ -67,6 +69,32 @@ struct SyncGuard {
 std::vector<LiveSession*> sessions;
 bool installed = false;
 LONG sessionCounter = 0;
+
+void clearNativeState(LiveSession& session)
+{
+	session.character = NULL;
+	session.owner = NULL;
+	session.game = NULL;
+	session.client = NULL;
+	session.saveRootPage = NULL;
+	session.pages.clear();
+	session.resultPages.clear();
+	session.privateCube.clear();
+	session.saveCube.clear();
+	session.saveRoots.clear();
+}
+
+void retryClosingSessions()
+{
+	SharedStash::retryRetiredSessions();
+	for (size_t i = 0; i < sessions.size();) {
+		LiveSession* session = sessions[i];
+		if (session->closing && !session->owner && SharedStash::retireSession(session->store, session->token)) {
+			delete session;
+			sessions.erase(sessions.begin() + i);
+		} else ++i;
+	}
+}
 
 bool localDatabasePath(const char* path, char* canonical)
 {
@@ -442,6 +470,64 @@ DWORD actionCube(LiveSession& session, const BYTE* packet, DWORD size)
 	return isCube(item) ? gid : 0;
 }
 
+bool privateCubeHasContents(LiveSession& session)
+{
+	if (!session.privateCube.empty()) return true;
+	if (session.cube) return false;
+	Unit* ptChar = session.character;
+	for (Unit* item = D2InventoryGetFirstItem(PCInventory); item; item = D2UnitGetNextItem(item))
+		if (isLivePageItem(ptChar, item, 3)) return true;
+	return false;
+}
+
+std::vector<DWORD> movingPageCubes(Unit* ptChar, Stash* page)
+{
+	std::vector<DWORD> result;
+	if (!page) return result;
+	bool shown = page == PCPY->currentStash;
+	Unit* first = shown ? D2InventoryGetFirstItem(PCInventory) : page->ptListItem;
+	for (Unit* item = first; item; item = D2UnitGetNextItem(item)) {
+		if (D2ItemGetPage(item) != 4 || (shown && item->ptItemData->ptInventory != PCInventory)) continue;
+		if (isCube(item) && !isPinnedItem(ptChar, item, 0)) result.push_back(item->nItemNum);
+	}
+	return result;
+}
+
+bool pageSwapCube(LiveSession& session, const BYTE* packet, DWORD size, DWORD& gid)
+{
+	if (packet[0] != 0x3A || size != 3 || packet[1] != US_SWAP0_TOGGLE) return true;
+	Unit* ptChar = session.character;
+	Stash* current = PCPY->currentStash;
+	DWORD page = PCPY->pageSwap | packet[2];
+	Stash* target = getStash(ptChar, !current->isShared, page);
+	if (!target && !canCreateStashPage(!current->isShared, page)) return true;
+	Stash* shared = current->isShared ? current : target;
+	Stash* personal = current->isShared ? target : current;
+	std::vector<DWORD> sharedCubes = movingPageCubes(ptChar, shared);
+	std::vector<DWORD> personalCubes = movingPageCubes(ptChar, personal);
+	unsigned fullShared = 0;
+	DWORD fullSharedGid = 0;
+	for (size_t i = 0; i < sharedCubes.size(); ++i) {
+		Id id = 0;
+		for (std::map<Id, DWORD>::const_iterator unit = session.units.begin(); unit != session.units.end(); ++unit)
+			if (unit->second == sharedCubes[i]) { id = unit->first; break; }
+		if (!id) return false;
+		for (size_t child = 0; child < session.snapshot.items.size(); ++child) {
+			if (session.snapshot.items[child].parent != id) continue;
+			++fullShared; fullSharedGid = sharedCubes[i]; break;
+		}
+	}
+	CubePageTransfer transfer = cubePageTransfer((unsigned)sharedCubes.size(), fullShared,
+		(unsigned)personalCubes.size(), privateCubeHasContents(session));
+	if (transfer == CUBE_PAGE_NO_ROOM) {
+		log_msg("Shared stash page swap refused: cube contents do not fit the character's single cube grid.\n");
+		return false;
+	}
+	if (transfer == CUBE_PAGE_TO_PERSONAL) gid = fullSharedGid;
+	else if (transfer == CUBE_PAGE_TO_SHARED) gid = personalCubes[0];
+	return true;
+}
+
 bool cubeWithdrawalBlocked(LiveSession& session, DWORD gid, const BYTE* packet, DWORD size)
 {
 	if (!gid) return false;
@@ -456,13 +542,7 @@ bool cubeWithdrawalBlocked(LiveSession& session, DWORD gid, const BYTE* packet, 
 		withdrawing = !targetShared;
 	}
 	if (!withdrawing) return false;
-	if (!session.privateCube.empty()) return true;
-	if (!session.cube) {
-		Unit* ptChar = session.character;
-		for (Unit* item = D2InventoryGetFirstItem(PCInventory); item; item = D2UnitGetNextItem(item))
-			if (isLivePageItem(ptChar, item, 3)) return true;
-	}
-	return false;
+	return privateCubeHasContents(session);
 }
 
 bool capture(LiveSession& session, Snapshot& out, std::map<Id, DWORD>& units,
@@ -957,6 +1037,7 @@ bool SharedStashLoad(Unit* ptChar, bool isHardcore)
 {
 	if (!installed || !SharedNativeReady() || !SharedTransportReady() || !ptChar || !PCPlayerData || !PCGame
 		|| !hasSessionLockOf(PCPlayerData) || customDlls) return false;
+	retryClosingSessions();
 	LiveSession* session = NULL;
 	HANDLE migration = NULL;
 	try {
@@ -1167,10 +1248,14 @@ bool SharedStashBeforeAction(Game* game, Unit* ptChar, const BYTE* packet, DWORD
 		}
 		if (packet[0] == 0x55 && size == 16) { DWORD gid; memcpy(&gid, packet + 4, 4); session->actionGids.push_back(gid); }
 		DWORD cube = actionCube(*session, packet, size);
-		if (cubeWithdrawalBlocked(*session, cube, packet, size)) {
+		if (!pageSwapCube(*session, packet, size, cube) || cubeWithdrawalBlocked(*session, cube, packet, size)) {
 			session->store.cancel(request.operation, request.session); session->pending = false;
 			SharedNativeReleaseNotifications(ptChar);
 			rejected(ptChar, packet, size, PY_STATUS_NO_ROOM);
+			return false;
+		}
+		if (cube && packet[0] == 0x3A && !SharedNativeCloseCube(ptChar)) {
+			session->failed = true;
 			return false;
 		}
 		if (cube && !switchCube(*session, cube)) {
@@ -1197,6 +1282,7 @@ void SharedStashAfterAction(Unit* ptChar)
 
 void SharedStashTick(Game* game)
 {
+	retryClosingSessions();
 	for (size_t i = 0; i < sessions.size(); ++i) {
 		LiveSession* session = sessions[i];
 		try {
@@ -1301,9 +1387,12 @@ void SharedStashAfterClose(PlayerData* owner)
 			LiveSession* session = sessions[i];
 			// The owning native state has been destroyed and can no longer execute or
 			// save. An interrupted uncommitted action can now be abandoned safely.
-			if (session->pending) session->store.abandonSession(session->token);
-			else session->store.endSession(session->token);
-			delete session; sessions.erase(sessions.begin() + i); return;
+			clearNativeState(*session);
+			if (SharedStash::retireSession(session->store, session->token)) {
+				delete session;
+				sessions.erase(sessions.begin() + i);
+			}
+			return;
 		}
 }
 

@@ -3,6 +3,12 @@
 #include <windows.h>
 #include <string.h>
 
+// The one-byte server command 0x06 sets the client's game-exit flag.
+inline bool sharedStashExitPacket(const BYTE* packet, DWORD size)
+{
+	return packet && size == 1 && packet[0] == 0x06;
+}
+
 // Native inventory actions and NPC purchase/sale/repair/quest services can all
 // change items owned by the player's inventory, including the shown shared page.
 // Keep the client stamp filter and the server handler wrapper on this same set.

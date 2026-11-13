@@ -33,6 +33,7 @@
 #include "hostJoin.h"			// Install_HostJoin()
 #include "spriteLoad.h"			// Install_SpriteLoad() Install_HeaderCacheLock()
 #include "sharedStashSession.h"
+#include "../common/SharedStashCleanup.h"
 #include "customLibraries.h"
 #include "common.h"
 
@@ -397,6 +398,7 @@ extern "C" __declspec(dllexport) bool __stdcall Release()
 {
 	log_msg("\n***** FREE LIBRARIES *****\n\n" );
 
+	SharedStash::stopCleanupTimer();
 	freeCustomLibraries();
 	freeD2Libraries();
 	log_msg("***** END DIABLO II *****\n" );
@@ -453,7 +455,8 @@ extern "C" __declspec(dllexport) void* __stdcall Init(LPSTR IniName)
 	if (active_VersionTextChange)
 		Install_VersionChange();
 
-	if (active_PrintPlugYVersion || active_Windowed)
+	if (active_PrintPlugYVersion || active_Windowed
+		|| (version_D2Game == V114d && active_multiPageStash && active_SharedStashInMultiPlayer > 0))
 		Install_PrintPlugYVersion();
 
 	if (active_StatsPoints)

@@ -7,6 +7,7 @@
 
 #include "stashProtocol.h"
 #include "sharedStashSession.h"
+#include "SharedStashNative.h"
 #include "infinityStash.h"
 #include "updateServer.h"
 #include "common.h"
@@ -28,7 +29,8 @@ static bool isStashPacketInstalled()
 {
 	return version_D2Game == V114d
 		&& *(DWORD*)(offset_D2Game + STASH_PACKET_SIZE_SLOT) == PY_STASH_PACKET_SIZE
-		&& *(DWORD*)(offset_D2Game + STASH_PACKET_HANDLER_SLOT) == (DWORD)handleStashPacket;
+		&& (*(DWORD*)(offset_D2Game + STASH_PACKET_HANDLER_SLOT) == (DWORD)handleStashPacket
+			|| SharedNativeWrapsStashPacket());
 }
 
 bool hasStashData(Unit* ptChar)

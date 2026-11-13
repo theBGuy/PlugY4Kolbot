@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <exception>
+#include <utility>
 
 namespace SharedStash {
 namespace {
@@ -201,6 +202,12 @@ void lockFamily(sqlite3* db, const std::string& operation, Id id) {
 #define HANDLE_FAILURE catch(const Failure& f) { error_=f.text; return f.status; } catch(const std::exception& f) { error_=f.what(); return STORE_ERROR; }
 }
 Store::Store() : db_(0), width_(0), height_(0) {}
+Store::Store(Store&& other) noexcept
+    : db_(other.db_), width_(other.width_), height_(other.height_), error_(std::move(other.error_))
+{
+    other.db_ = 0;
+    other.width_ = other.height_ = 0;
+}
 Store::~Store() { close(); }
 void Store::close() { if(db_) sqlite3_close_v2(db_); db_=0; }
 Status Store::registerSession(const std::string& token) {
