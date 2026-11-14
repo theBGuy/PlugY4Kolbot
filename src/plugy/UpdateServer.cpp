@@ -255,12 +255,15 @@ FCT_ASM( caller_handleServerUpdate_114)
 	SHR ESI,8
 	MOV EDI,EAX
 	RETN
+// Leaves the 0x3A handler for it: below our return address sit the EDI our patch pushed and the handler's own
+// ESI/EBX/EBP saves, popped in the order of its epilogue at 0x54BD6A (5F 5E 33 C0 5B 5D C2 08 00).
 END_RCM:
-	ADD ESP,8
+	ADD ESP,4
 	POP EDI
 	POP ESI
 	XOR EAX,EAX
 	POP EBX
+	POP EBP
 	RETN 8
 }}
 
