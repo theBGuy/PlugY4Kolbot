@@ -15,9 +15,9 @@ changelog, so write for players and bot operators. Build scripts, CI, and repo
 tooling get **no fragment**.
 
 CI keys on paths, not user impact: the PR check fires on any change under
-`src/`, `game-files/` or `installer/`, so a change there that genuinely needs no
-fragment (an internal refactor, say) takes the `no-changelog` label or
-`skip-changelog` in the PR title.
+`src/`, `game-files/`, `installer/` or `third_party/`, so a change there that
+genuinely needs no fragment (an internal refactor, say) takes the `no-changelog`
+label or `skip-changelog` in the PR title.
 
 ## Format
 

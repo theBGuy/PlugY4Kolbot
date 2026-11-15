@@ -92,9 +92,9 @@ gap per file.
    state what the change gives them, not the defect it removes. Never edit
    `## [Unreleased]` in `CHANGELOG.md` directly; fragments are assembled there at
    release time. The `fragment` check is required on master and keys on paths: any
-   `src/`, `game-files/` or `installer/` change needs a fragment, the `no-changelog`
-   label, or `skip-changelog` in the PR title. Build scripts, CI and repo tooling get
-   no fragment.
+   `src/`, `game-files/`, `installer/` or `third_party/` change needs a fragment, the
+   `no-changelog` label, or `skip-changelog` in the PR title. Build scripts, CI and
+   repo tooling get no fragment.
 
 Everything under `game-files/` ships byte-exact (`-text`, CRLF; PlugY's INI parser
 needs CRLF) in several encodings: the English, German and French readmes are UTF-8,

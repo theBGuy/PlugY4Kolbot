@@ -8,8 +8,9 @@ import { fileURLToPath } from "node:url";
 import { FRAGMENT_RE } from "./changelog-lib.mjs";
 
 // The directories whose changes reach players: every program's source (src/),
-// the files installed beside them (game-files/) and the installer (installer/).
-export const SHIPPED_DIR_RE = /^(src|game-files|installer)\//;
+// the files installed beside them (game-files/), the installer (installer/) and
+// the vendored libraries compiled into them (third_party/).
+export const SHIPPED_DIR_RE = /^(src|game-files|installer|third_party)\//;
 
 export function fragmentVerdict({ changedFiles, presentFiles, prTitle }) {
   if (
@@ -27,7 +28,7 @@ export function fragmentVerdict({ changedFiles, presentFiles, prTitle }) {
       required: false,
       satisfied: true,
       reason:
-        "No src/, game-files/ or installer/ changes; fragment not required.",
+        "No src/, game-files/, installer/ or third_party/ changes; fragment not required.",
     };
   }
   // Stay in sync with changelog-draft.mjs through its shared FRAGMENT_RE.
@@ -57,7 +58,7 @@ export function fragmentVerdict({ changedFiles, presentFiles, prTitle }) {
     required: true,
     satisfied: false,
     reason: [
-      "::error::This PR changes src/, game-files/ or installer/ but adds no changelog.d/ fragment.",
+      "::error::This PR changes src/, game-files/, installer/ or third_party/ but adds no changelog.d/ fragment.",
       "A fragment DELETED by this PR doesn't count; only fragments present on the head commit do.",
       "Add changelog.d/<added|changed|fixed>-<slug>.md (see changelog.d/README.md),",
       "or add the 'no-changelog' label / put 'skip-changelog' in the PR title.",
