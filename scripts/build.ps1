@@ -6,7 +6,8 @@
 
 .DESCRIPTION
     Output: build/out/<Config>/ holds the five binaries, their PDBs, PlugY.map
-    and build.log. Intermediates: build/out/<Config>/obj/<dll|run|patch|restore|update>/.
+    and build.log. Intermediates: build/out/<Config>/obj/<dll|run|patch|restore|update>/,
+    and the vendored SQLite compiled once per C runtime in obj/sqlite-<mt|md>/.
     This script is the canonical definition of the sources and of every compiler
     and linker flag; the comments say why a flag is there. Every source is
     recompiled on each run (no dependency tracking), so the result never depends
@@ -36,8 +37,8 @@
     tests/SaveTransferTests.cpp, tests/MovedItemsPageTests.cpp,
     tests/ReleasedConnectionsTests.cpp, tests/StatBonusTests.cpp,
     tests/ServerMessageRulesTests.cpp, tests/UpdateNoticeRulesTests.cpp,
-    tests/IniSectionTests.cpp, tests/CharacterCommitTests.cpp and
-    tests/SpriteLoadRulesTests.cpp into
+    tests/IniSectionTests.cpp, tests/CharacterCommitTests.cpp,
+    tests/SpriteLoadRulesTests.cpp and tests/SqliteBuildTests.cpp into
     build/out/<Config>/tests/ (console, static CRT) and run them. Exits 1 when a
     test fails.
 
@@ -137,6 +138,35 @@ $DllSources = @(
     'src\common\CharacterCommit.cpp'
 )
 
+# The vendored SQLite amalgamation (third_party/sqlite/README.md). Its bytes are checked against these pins before
+# anything compiles, so a changed or re-encoded copy never builds.
+$SqliteSource = 'third_party\sqlite\sqlite3.c'
+$SqliteSha256 = [ordered]@{
+    'third_party\sqlite\sqlite3.c' = '9512509b1bccb7461f79bea8aad6280ae4699e925fa4804381b71f59e7efb0c5'
+    'third_party\sqlite\sqlite3.h' = '19585c8b5230e9d4f223bf31b709ece7b6a0bb3faf00d8310625d8e58cda1b1d'
+}
+# The one list of SQLite compile options, for every binary that links sqlite3.obj; tests/SqliteBuildTests.cpp checks
+# each. THREADSAFE=1 (serialized) costs nothing next to an fsync and needs no proof of single-thread use. No
+# OMIT_AUTOINIT (a call before sqlite3_initialize would crash Game.exe), no OMIT_WAL and no ENABLE_* option. SQLITE_API
+# stays empty, so PlugY.dll exports nothing new.
+$SqliteDefines = @(
+    'SQLITE_DQS=0'
+    'SQLITE_THREADSAFE=1'
+    'SQLITE_DEFAULT_SYNCHRONOUS=2'
+    'SQLITE_DEFAULT_WAL_SYNCHRONOUS=2'
+    'SQLITE_TEMP_STORE=3'
+    'SQLITE_OMIT_LOAD_EXTENSION'
+    'SQLITE_DEFAULT_MEMSTATUS=0'
+    'SQLITE_LIKE_DOESNT_MATCH_BLOBS'
+    'SQLITE_MAX_EXPR_DEPTH=0'
+    'SQLITE_OMIT_DEPRECATED'
+    'SQLITE_OMIT_PROGRESS_CALLBACK'
+    'SQLITE_OMIT_SHARED_CACHE'
+    'SQLITE_TRUSTED_SCHEMA=0'
+    'SQLITE_DEFAULT_FOREIGN_KEYS=1'
+    'SQLITE_STRICT_SUBTYPE=1'
+)
+
 function Write-Log([string]$Text) {
     Write-Host $Text
     [System.IO.File]::AppendAllText($LogFile, $Text + [Environment]::NewLine)
@@ -199,6 +229,8 @@ function Build-Target([hashtable]$Target) {
     } finally {
         Pop-Location
     }
+    # Objects compiled elsewhere with their own flags (the per-CRT sqlite3.obj); linked after the target's own.
+    if ($Target.ContainsKey('Objects')) { $objects += $Target.Objects }
 
     $resources = @()
     if ($Target.Rc) {
@@ -227,6 +259,37 @@ function Build-Target([hashtable]$Target) {
     Invoke-Tool $Link $linkArgs
 }
 
+function Assert-SqlitePins {
+    foreach ($rel in $SqliteSha256.Keys) {
+        $actual = (Get-FileHash -LiteralPath (Join-Path $RepoRoot $rel) -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $SqliteSha256[$rel]) { throw "$rel SHA-256: expected $($SqliteSha256[$rel]), got $actual" }
+    }
+}
+
+# Compiles sqlite3.c as C into obj/sqlite-<crt>/sqlite3.obj with the DLL's code generation (/arch:IA32 /Gd), the
+# shared optimization flags with that CRT, and $SqliteDefines; returns the object's path for a target's Objects.
+function Build-SqliteObject([string]$CrtName) {
+    $objDir = Join-Path $ObjRoot ('sqlite-' + $CrtName.ToLowerInvariant())
+    New-Item -ItemType Directory -Force -Path $objDir | Out-Null
+    Write-Log ''
+    Write-Log ('=== sqlite3.obj (/' + $CrtName + ')')
+    # Not $crtFlag: PowerShell names are case-insensitive, so that would shadow the script's $CrtFlag filtered below.
+    $objCrtFlag = '/' + $CrtName + $(if ($Release) { '' } else { 'd' })
+    $obj = Join-Path $objDir 'sqlite3.obj'
+    $sqliteArgs = @('/nologo', '/TC', '/c', '/W3', '/Gd', '/arch:IA32') +
+                  @($OptFlags | Where-Object { $_ -ne $CrtFlag }) + @($objCrtFlag) +
+                  (@($NDebug, 'WIN32') + $SqliteDefines | ForEach-Object { '/D' + $_ }) +
+                  @(('/Fd' + (Join-Path $objDir 'vc.pdb')), '/FS', '/Brepro', ('/Fo' + $obj), $SqliteSource)
+    # Repo-relative source path, as in Build-Target, keeps the checkout path out of __FILE__.
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        Invoke-Tool $Cl $sqliteArgs
+    } finally {
+        Pop-Location
+    }
+    return $obj
+}
+
 try {
     # --- Output directories -------------------------------------------------------
     if ($Clean -and (Test-Path -LiteralPath $OutDir)) {
@@ -235,6 +298,7 @@ try {
     New-Item -ItemType Directory -Force -Path $ObjRoot | Out-Null
     [System.IO.File]::WriteAllText($LogFile, "PlugY4Kolbot build: Config=$Config Crt=$Crt" + [Environment]::NewLine)
     if ($Define.Count) { Write-Log ('Extra PlugY.dll defines: ' + ($Define -join ' ')) }
+    Assert-SqlitePins
 
     # --- Toolchain discovery --------------------------------------------------------
     # FCT_ASM in d2functions.h relies on __declspec(naked) + inline __asm, which only
@@ -386,6 +450,12 @@ try {
                       '/DELAYLOAD:winhttp.dll', '/DELAYLOAD:bcrypt.dll', '/DELAYLOAD:version.dll', 'delayimp.lib',
                       '/DEPENDENTLOADFLAG:0x800')
     }
+
+    # One sqlite3.obj per CRT a target links: -Crt's (PlugY.dll's) and, with -Test, the tests' static one.
+    $SqliteCrts = @($Crt.ToUpperInvariant())
+    if ($Test -and $SqliteCrts -notcontains 'MT') { $SqliteCrts += 'MT' }
+    $SqliteObjects = @{}
+    foreach ($sqliteCrt in $SqliteCrts) { $SqliteObjects[$sqliteCrt] = Build-SqliteObject $sqliteCrt }
 
     foreach ($target in @($Dll, $Run, $Patch, $Restore, $Update)) { Build-Target $target }
 
@@ -547,6 +617,20 @@ try {
             LinkExtra = @()
         }
         Build-Target $SpriteLoadRulesTests
+        $SqliteBuildTests = @{
+            Key       = 'sqlitetests'
+            Sources   = @('tests\SqliteBuildTests.cpp')
+            Objects   = @($SqliteObjects['MT'])
+            Rc        = $null
+            Out       = 'tests\SqliteBuildTests.exe'
+            Pdb       = 'tests\SqliteBuildTests.pdb'
+            ClFlags   = @('/nologo', '/c', '/W3', '/EHsc') + $StaticOpt
+            Defines   = @('WIN32', $NDebug, '_CONSOLE', '_MBCS', '_CRT_SECURE_NO_WARNINGS')
+            RcFlags   = @()
+            LinkFlags = $ConsoleLink
+            LinkExtra = @()
+        }
+        Build-Target $SqliteBuildTests
 
         $testArguments = @('--fixtures', (Join-Path $RepoRoot 'tests\fixtures'),
                            '--scratch', (Join-Path (Join-Path $OutDir 'tests') 'scratch'))
@@ -591,10 +675,15 @@ try {
         Write-Log ''
         Write-Log '=== SpriteLoadRulesTests.exe'
         Invoke-Tool (Join-Path $OutDir $SpriteLoadRulesTests.Out) @()
+        Write-Log ''
+        Write-Log '=== SqliteBuildTests.exe'
+        Invoke-Tool (Join-Path $OutDir $SqliteBuildTests.Out) @('--scratch', (Join-Path (Join-Path $OutDir 'tests') 'scratch'))
     }
 
-    $warnings = @(Get-Content -LiteralPath $LogFile | Where-Object { $_ -match ': warning [A-Z]+\d+' }).Count
-    $tested = if ($Test) { '; update-check, updater, session-log, save-transfer, moved-items-page, released-connections, stat-bonus, server-message, update-notice, ini-section, character-commit and sprite-load tests passed' } else { '' }
+    # cl reports a bad or overridden option as "cl : Command line warning D9025 : ..."; every other warning reads
+    # "...: warning C4996: ..." or "LINK : warning LNK4044: ...".
+    $warnings = @(Get-Content -LiteralPath $LogFile | Where-Object { $_ -match ': (Command line )?warning [A-Z]+\d+' }).Count
+    $tested = if ($Test) { '; update-check, updater, session-log, save-transfer, moved-items-page, released-connections, stat-bonus, server-message, update-notice, ini-section, character-commit, sprite-load and sqlite-build tests passed' } else { '' }
     Write-Host ''
     $defined = if ($Define.Count) { ', PlugY.dll with ' + ($Define -join ' ') } else { '' }
     Write-Host "Built PlugY.dll, PlugY.exe, PatchD2File.exe, RestoreD2File.exe, PlugY4KolbotUpdater.exe ($Config, /$Crt$defined) with $warnings warning(s) in $OutDir$tested" -ForegroundColor Green

@@ -9,7 +9,7 @@ const verdict = (changedFiles, presentFiles = [], prTitle = "feat: x") =>
   fragmentVerdict({ changedFiles, presentFiles, prTitle });
 
 test("changes outside the shipped directories need no fragment", () => {
-  for (const changed of [[], ["README.md"], ["scripts/release.mjs"], [".github/workflows/x.yml"], ["tests/UpdaterTests.cpp"], ["srcish/x.cpp"]]) {
+  for (const changed of [[], ["README.md"], ["scripts/release.mjs"], [".github/workflows/x.yml"], ["tests/UpdaterTests.cpp"], ["srcish/x.cpp"], ["third_party.md"]]) {
     const v = verdict(changed);
     assert.equal(v.required, false, JSON.stringify(changed));
     assert.equal(v.satisfied, true);
@@ -17,7 +17,7 @@ test("changes outside the shipped directories need no fragment", () => {
 });
 
 test("each shipped directory requires a fragment", () => {
-  for (const dir of ["src/plugy", "src/common", "src/launcher", "src/patcher", "src/updater", "game-files", "installer"]) {
+  for (const dir of ["src/plugy", "src/common", "src/launcher", "src/patcher", "src/updater", "game-files", "installer", "third_party/sqlite"]) {
     const v = verdict([`${dir}/file.cpp`]);
     assert.equal(v.required, true, dir);
     assert.equal(v.satisfied, false, dir);
