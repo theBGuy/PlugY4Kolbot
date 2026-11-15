@@ -680,7 +680,9 @@ try {
         Invoke-Tool (Join-Path $OutDir $SqliteBuildTests.Out) @('--scratch', (Join-Path (Join-Path $OutDir 'tests') 'scratch'))
     }
 
-    $warnings = @(Get-Content -LiteralPath $LogFile | Where-Object { $_ -match ': warning [A-Z]+\d+' }).Count
+    # cl reports a bad or overridden option as "cl : Command line warning D9025 : ..."; every other warning reads
+    # "...: warning C4996: ..." or "LINK : warning LNK4044: ...".
+    $warnings = @(Get-Content -LiteralPath $LogFile | Where-Object { $_ -match ': (Command line )?warning [A-Z]+\d+' }).Count
     $tested = if ($Test) { '; update-check, updater, session-log, save-transfer, moved-items-page, released-connections, stat-bonus, server-message, update-notice, ini-section, character-commit, sprite-load and sqlite-build tests passed' } else { '' }
     Write-Host ''
     $defined = if ($Define.Count) { ', PlugY.dll with ' + ($Define -join ' ') } else { '' }
