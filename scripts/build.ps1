@@ -38,7 +38,8 @@
     tests/ReleasedConnectionsTests.cpp, tests/StatBonusTests.cpp,
     tests/ServerMessageRulesTests.cpp, tests/UpdateNoticeRulesTests.cpp,
     tests/IniSectionTests.cpp, tests/CharacterCommitTests.cpp,
-    tests/SpriteLoadRulesTests.cpp and tests/SqliteBuildTests.cpp into
+    tests/SpriteLoadRulesTests.cpp, tests/SqliteBuildTests.cpp,
+    tests/SharedStashFormatTests.cpp and tests/SharedStashStoreTests.cpp into
     build/out/<Config>/tests/ (console, static CRT) and run them. Exits 1 when a
     test fails.
 
@@ -631,6 +632,36 @@ try {
             LinkExtra = @()
         }
         Build-Target $SqliteBuildTests
+        $SharedStashFormatTests = @{
+            Key       = 'stashformattests'
+            Sources   = @('tests\SharedStashFormatTests.cpp', 'src\common\SharedStashFormat.cpp')
+            Rc        = $null
+            Out       = 'tests\SharedStashFormatTests.exe'
+            Pdb       = 'tests\SharedStashFormatTests.pdb'
+            ClFlags   = @('/nologo', '/c', '/W3', '/EHsc') + $StaticOpt
+            Defines   = @('WIN32', $NDebug, '_CONSOLE', '_MBCS', '_CRT_SECURE_NO_WARNINGS')
+            RcFlags   = @()
+            LinkFlags = $ConsoleLink
+            LinkExtra = @()
+        }
+        Build-Target $SharedStashFormatTests
+        # SHARED_STASH_TEST_API is a target define, not a #define in the test: the test members it enables are compiled
+        # in SharedStashStore.cpp, another translation unit of this target.
+        $SharedStashStoreTests = @{
+            Key       = 'stashstoretests'
+            Sources   = @('tests\SharedStashStoreTests.cpp', 'src\common\SharedStashStore.cpp',
+                          'src\common\SharedStashFormat.cpp')
+            Objects   = @($SqliteObjects['MT'])
+            Rc        = $null
+            Out       = 'tests\SharedStashStoreTests.exe'
+            Pdb       = 'tests\SharedStashStoreTests.pdb'
+            ClFlags   = @('/nologo', '/c', '/W3', '/EHsc') + $StaticOpt
+            Defines   = @('WIN32', $NDebug, '_CONSOLE', '_MBCS', '_CRT_SECURE_NO_WARNINGS', 'SHARED_STASH_TEST_API')
+            RcFlags   = @()
+            LinkFlags = $ConsoleLink
+            LinkExtra = @()
+        }
+        Build-Target $SharedStashStoreTests
 
         $testArguments = @('--fixtures', (Join-Path $RepoRoot 'tests\fixtures'),
                            '--scratch', (Join-Path (Join-Path $OutDir 'tests') 'scratch'))
@@ -678,12 +709,18 @@ try {
         Write-Log ''
         Write-Log '=== SqliteBuildTests.exe'
         Invoke-Tool (Join-Path $OutDir $SqliteBuildTests.Out) @('--scratch', (Join-Path (Join-Path $OutDir 'tests') 'scratch'))
+        Write-Log ''
+        Write-Log '=== SharedStashFormatTests.exe'
+        Invoke-Tool (Join-Path $OutDir $SharedStashFormatTests.Out) @('--fixtures', (Join-Path $RepoRoot 'tests\fixtures'))
+        Write-Log ''
+        Write-Log '=== SharedStashStoreTests.exe'
+        Invoke-Tool (Join-Path $OutDir $SharedStashStoreTests.Out) @('--scratch', (Join-Path (Join-Path $OutDir 'tests') 'scratch'))
     }
 
     # cl reports a bad or overridden option as "cl : Command line warning D9025 : ..."; every other warning reads
     # "...: warning C4996: ..." or "LINK : warning LNK4044: ...".
     $warnings = @(Get-Content -LiteralPath $LogFile | Where-Object { $_ -match ': (Command line )?warning [A-Z]+\d+' }).Count
-    $tested = if ($Test) { '; update-check, updater, session-log, save-transfer, moved-items-page, released-connections, stat-bonus, server-message, update-notice, ini-section, character-commit, sprite-load and sqlite-build tests passed' } else { '' }
+    $tested = if ($Test) { '; update-check, updater, session-log, save-transfer, moved-items-page, released-connections, stat-bonus, server-message, update-notice, ini-section, character-commit, sprite-load, sqlite-build, shared-stash-format and shared-stash-store tests passed' } else { '' }
     Write-Host ''
     $defined = if ($Define.Count) { ', PlugY.dll with ' + ($Define -join ' ') } else { '' }
     Write-Host "Built PlugY.dll, PlugY.exe, PatchD2File.exe, RestoreD2File.exe, PlugY4KolbotUpdater.exe ($Config, /$Crt$defined) with $warnings warning(s) in $OutDir$tested" -ForegroundColor Green
